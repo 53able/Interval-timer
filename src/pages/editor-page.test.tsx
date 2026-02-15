@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { usePresetStore } from "@/stores/preset-store";
 import { TABATA_PRESET } from "@/data/default-presets";
 import type { Preset } from "@/schemas/timer";
