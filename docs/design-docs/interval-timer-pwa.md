@@ -136,12 +136,13 @@ erDiagram
         string id "UUID"
         string name "プリセット名"
         number totalRounds "繰り返し回数"
+        number prepareSec "準備フェーズ秒数（0で省略）"
         number createdAt "作成日時"
     }
     
     Phase {
         string id "UUID"
-        string type "work | rest | prepare"
+        string type "work | rest"
         string label "表示ラベル"
         number durationSec "秒数"
         string color "表示カラー"
@@ -154,7 +155,7 @@ erDiagram
 // Zodスキーマで定義
 const PhaseSchema = z.object({
   id: z.string().uuid(),
-  type: z.enum(["work", "rest", "prepare"]),
+  type: z.enum(["work", "rest"]),
   label: z.string(),
   durationSec: z.number().int().positive(),
   color: z.string(),
@@ -164,6 +165,7 @@ const PresetSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   totalRounds: z.number().int().positive(),
+  prepareSec: z.number().int().nonnegative(),
   phases: z.array(PhaseSchema).min(1),
   createdAt: z.number(),
 });
@@ -265,8 +267,8 @@ const TABATA_PRESET: z.infer<typeof PresetSchema> = {
   id: "default-tabata",
   name: "Tabata",
   totalRounds: 8,
+  prepareSec: 10,
   phases: [
-    { id: "prepare", type: "prepare", label: "準備", durationSec: 10, color: "#9E9E9E" },
     { id: "work", type: "work", label: "WORK", durationSec: 20, color: "#4CAF50" },
     { id: "rest", type: "rest", label: "REST", durationSec: 10, color: "#FFC107" },
   ],
@@ -372,9 +374,19 @@ sequenceDiagram
     UI->>Sound: Tone.start()（AudioContext初期化）
     UI->>WakeLock: wakeLock.request('screen')
     UI->>Timer: start(preset)
+
+    opt prepareSec > 0（準備フェーズ：1回のみ）
+        Timer->>Store: useTimerStore → 準備フェーズ開始
+        Store->>UI: 再レンダリング（準備カウントダウン）
+        Timer->>Sound: 準備開始音
+        loop 毎秒
+            Timer->>Store: useTimerStore → 残り時間更新
+            Store->>UI: 再レンダリング
+        end
+    end
     
-    loop 各ラウンド
-        loop 各フェーズ
+    loop 各ラウンド (1..totalRounds)
+        loop 各フェーズ（work, rest）
             Timer->>Store: useTimerStore → 状態更新（フェーズ・残り時間）
             Store->>UI: 再レンダリング（残り時間表示）
             Timer->>Sound: フェーズ開始音（tonal→Tone.Synth）
@@ -722,3 +734,4 @@ T0 → T1 → T2 → T3 → T4 → T6 → T9
 | 2026-02-15 | 開発ツールチェーン確定（Biome / tsgo）、状態管理にZustandを採用、状態管理アーキテクチャセクションを追加 | Biomeでリンター+フォーマッターを統一。tsgoで高速型チェック。ZustandストアはZodスキーマベースで型安全なlocalStorage永続化を実現 |
 | 2026-02-15 | アニメーションに@react-spring/webを採用、アニメーション戦略セクションを追加 | スプリング物理でSVGリング進行・フェーズ切替・カウントダウンを滑らかに制御。Zustandと同じpmndrsエコシステムで親和性が高い |
 | 2026-02-15 | タスクブレイクダウン（10タスク、スタック方式）を追加 | ADE Phase 1完了。T0-T9の依存関係・ブランチ戦略・INTERFACE/IMPLEMENT分類を策定 |
+| 2026-02-15 | prepareフェーズをPresetのトップレベルフィールド（prepareSec）に分離。phases配列はwork/restのみ。処理フローを修正 | phases配列内のprepareが毎ラウンド実行される不具合を修正。合計時間計算（4:10）との矛盾を解消 |
