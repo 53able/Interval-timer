@@ -1,43 +1,57 @@
+import { z } from "zod/v4";
 import {
   type Preset,
   type PhaseType,
+  PhaseSchema,
   MAX_TOTAL_ROUNDS,
   MIN_PHASE_DURATION_SEC,
   MAX_PHASE_DURATION_SEC,
 } from "@/schemas/timer";
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 /**
- * タイマーの動作状態
+ * タイマーの動作状態を表すZodスキーマ
  *
  * - `idle`: 初期状態（タイマー未開始）
  * - `running`: タイマー実行中
  * - `paused`: 一時停止中
  * - `completed`: 全ラウンド完了
  */
-export type TimerStatus = "idle" | "running" | "paused" | "completed";
+const TimerStatusSchema = z.enum(["idle", "running", "paused", "completed"]);
+
+/** タイマーの動作状態 */
+export type TimerStatus = z.infer<typeof TimerStatusSchema>;
+
+/**
+ * タイマーストアの永続化データを検証するZodスキーマ
+ *
+ * localStorage から復元したデータが正しい構造を持つか `safeParse` で検証し、
+ * 不正データの場合は初期状態にフォールバックする。
+ */
+const TimerStoreSchema = z.object({
+  /** タイマーの動作状態 */
+  status: TimerStatusSchema,
+  /** 現在のフェーズのインデックス（0始まり、準備フェーズ中は -1） */
+  currentPhaseIndex: z.number().int(),
+  /** 現在のラウンド番号（1始まり） */
+  currentRound: z.number().int().positive(),
+  /** 現在のフェーズの残り秒数 */
+  remainingSec: z.number().nonnegative(),
+  /** 実行中のプリセットID。idle 時は null */
+  presetId: z.string().nullable(),
+  /** 実行中プリセットのフェーズ配列（start 時にコピー、work/rest のみ） */
+  phases: z.array(PhaseSchema),
+  /** 実行中プリセットの総ラウンド数 */
+  totalRounds: z.number().int().positive(),
+  /** 準備フェーズの秒数（0 は準備フェーズなし） */
+  prepareSec: z.number().nonnegative(),
+  /** 現在、準備フェーズを実行中かどうか */
+  isPreparingPhase: z.boolean(),
+});
 
 /** タイマーストアの状態型 */
-type TimerStoreState = {
-  /** タイマーの動作状態 */
-  readonly status: TimerStatus;
-  /** 現在のフェーズのインデックス（0始まり、準備フェーズ中は -1） */
-  readonly currentPhaseIndex: number;
-  /** 現在のラウンド番号（1始まり） */
-  readonly currentRound: number;
-  /** 現在のフェーズの残り秒数 */
-  readonly remainingSec: number;
-  /** 実行中のプリセットID。idle 時は null */
-  readonly presetId: string | null;
-  /** 実行中プリセットのフェーズ配列（start 時にコピー、work/rest のみ） */
-  readonly phases: Preset["phases"];
-  /** 実行中プリセットの総ラウンド数 */
-  readonly totalRounds: number;
-  /** 準備フェーズの秒数（0 は準備フェーズなし） */
-  readonly prepareSec: number;
-  /** 現在、準備フェーズを実行中かどうか */
-  readonly isPreparingPhase: boolean;
-};
+type TimerStoreState = z.infer<typeof TimerStoreSchema>;
 
 /** タイマーストアのアクション型 */
 type TimerStoreActions = {
@@ -74,11 +88,13 @@ type TimerStoreActions = {
   readonly updatePhaseDuration: (phaseType: PhaseType, newDurationSec: number) => void;
 };
 
+/** localStorage に保存する際のストレージキー */
+const STORAGE_KEY = "interval-timer-timer" as const;
+
 /**
  * タイマーストアの初期状態
  *
  * タイマー停止時やリセット時にこの状態に戻る。
- * 揮発性のためlocalStorage永続化は行わない。
  */
 const INITIAL_STATE: TimerStoreState = {
   status: "idle",
@@ -95,110 +111,129 @@ const INITIAL_STATE: TimerStoreState = {
 /**
  * タイマーの実行状態を管理するストア
  *
- * - 揮発性（localStorage 永続化なし）
+ * - Zustand の `persist` ミドルウェアで localStorage に永続化
+ * - `merge` コールバックで Zod バリデーション + 復元時の特殊ルール:
+ *   - `status: "running"` → `"paused"` に変更（リロード後の自動再生を防止）
  * - `start` でプリセットを受け取り、フェーズ情報をストア内にコピー
  * - `tick` で毎秒の更新を処理:
  *   1. 準備フェーズ中: デクリメント → 0 になったらラウンドループ開始
  *   2. ラウンドループ: デクリメント → フェーズ進行 → ラウンド進行 → 完了
  */
-export const useTimerStore = create<TimerStoreState & TimerStoreActions>()((set, get) => ({
-  ...INITIAL_STATE,
+export const useTimerStore = create<TimerStoreState & TimerStoreActions>()(
+  persist(
+    (set, get) => ({
+      ...INITIAL_STATE,
 
-  start: (preset) => {
-    const hasPrepare = preset.prepareSec > 0;
-    set({
-      status: "running",
-      presetId: preset.id,
-      phases: preset.phases,
-      totalRounds: preset.totalRounds,
-      prepareSec: preset.prepareSec,
-      isPreparingPhase: hasPrepare,
-      currentPhaseIndex: hasPrepare ? -1 : 0,
-      currentRound: 1,
-      remainingSec: hasPrepare ? preset.prepareSec : preset.phases[0].durationSec,
-    });
-  },
+      start: (preset) => {
+        const hasPrepare = preset.prepareSec > 0;
+        set({
+          status: "running",
+          presetId: preset.id,
+          phases: preset.phases,
+          totalRounds: preset.totalRounds,
+          prepareSec: preset.prepareSec,
+          isPreparingPhase: hasPrepare,
+          currentPhaseIndex: hasPrepare ? -1 : 0,
+          currentRound: 1,
+          remainingSec: hasPrepare ? preset.prepareSec : preset.phases[0].durationSec,
+        });
+      },
 
-  pause: () => set({ status: "paused" }),
+      pause: () => set({ status: "paused" }),
 
-  resume: () => set({ status: "running" }),
+      resume: () => set({ status: "running" }),
 
-  reset: () => set(INITIAL_STATE),
+      reset: () => set(INITIAL_STATE),
 
-  updateTotalRounds: (newTotalRounds) => {
-    const { status, currentRound } = get();
-    if (status !== "running" && status !== "paused") return;
+      updateTotalRounds: (newTotalRounds) => {
+        const { status, currentRound } = get();
+        if (status !== "running" && status !== "paused") return;
 
-    const clamped = Math.max(currentRound, Math.min(newTotalRounds, MAX_TOTAL_ROUNDS));
-    set({ totalRounds: clamped });
-  },
+        const clamped = Math.max(currentRound, Math.min(newTotalRounds, MAX_TOTAL_ROUNDS));
+        set({ totalRounds: clamped });
+      },
 
-  updatePhaseDuration: (phaseType, newDurationSec) => {
-    const { status, phases, currentPhaseIndex, isPreparingPhase, remainingSec } = get();
-    if (status !== "running" && status !== "paused") return;
+      updatePhaseDuration: (phaseType, newDurationSec) => {
+        const { status, phases, currentPhaseIndex, isPreparingPhase, remainingSec } = get();
+        if (status !== "running" && status !== "paused") return;
 
-    const clamped = Math.max(MIN_PHASE_DURATION_SEC, Math.min(newDurationSec, MAX_PHASE_DURATION_SEC));
+        const clamped = Math.max(MIN_PHASE_DURATION_SEC, Math.min(newDurationSec, MAX_PHASE_DURATION_SEC));
 
-    const updatedPhases = phases.map((p) =>
-      p.type === phaseType ? { ...p, durationSec: clamped } : p,
-    );
+        const updatedPhases = phases.map((p) =>
+          p.type === phaseType ? { ...p, durationSec: clamped } : p,
+        );
 
-    // 現在実行中のフェーズが該当タイプなら、残り秒数を新秒数以下にキャップ
-    const currentPhase = isPreparingPhase ? null : phases[currentPhaseIndex];
-    const shouldCapRemaining = currentPhase?.type === phaseType && remainingSec > clamped;
+        // 現在実行中のフェーズが該当タイプなら、残り秒数を新秒数以下にキャップ
+        const currentPhase = isPreparingPhase ? null : phases[currentPhaseIndex];
+        const shouldCapRemaining = currentPhase?.type === phaseType && remainingSec > clamped;
 
-    set({
-      phases: updatedPhases,
-      ...(shouldCapRemaining ? { remainingSec: clamped } : {}),
-    });
-  },
+        set({
+          phases: updatedPhases,
+          ...(shouldCapRemaining ? { remainingSec: clamped } : {}),
+        });
+      },
 
-  tick: () => {
-    const { remainingSec, currentPhaseIndex, currentRound, phases, totalRounds, isPreparingPhase } =
-      get();
-    const nextRemaining = remainingSec - 1;
+      tick: () => {
+        const { remainingSec, currentPhaseIndex, currentRound, phases, totalRounds, isPreparingPhase } =
+          get();
+        const nextRemaining = remainingSec - 1;
 
-    // フェーズ途中: 残り秒数をデクリメントするだけ
-    if (nextRemaining > 0) {
-      set({ remainingSec: nextRemaining });
-      return;
-    }
+        // フェーズ途中: 残り秒数をデクリメントするだけ
+        if (nextRemaining > 0) {
+          set({ remainingSec: nextRemaining });
+          return;
+        }
 
-    // 準備フェーズ完了 → ラウンドループの最初のフェーズへ
-    if (isPreparingPhase) {
-      set({
-        isPreparingPhase: false,
-        currentPhaseIndex: 0,
-        remainingSec: phases[0].durationSec,
-      });
-      return;
-    }
+        // 準備フェーズ完了 → ラウンドループの最初のフェーズへ
+        if (isPreparingPhase) {
+          set({
+            isPreparingPhase: false,
+            currentPhaseIndex: 0,
+            remainingSec: phases[0].durationSec,
+          });
+          return;
+        }
 
-    // フェーズ終了: 次の遷移先を判定
-    const isLastPhase = currentPhaseIndex >= phases.length - 1;
-    const isLastRound = currentRound >= totalRounds;
+        // フェーズ終了: 次の遷移先を判定
+        const isLastPhase = currentPhaseIndex >= phases.length - 1;
+        const isLastRound = currentRound >= totalRounds;
 
-    // 全ラウンド完了
-    if (isLastPhase && isLastRound) {
-      set({ status: "completed", remainingSec: 0 });
-      return;
-    }
+        // 全ラウンド完了
+        if (isLastPhase && isLastRound) {
+          set({ status: "completed", remainingSec: 0 });
+          return;
+        }
 
-    // 次のラウンドへ（現在のラウンドの最終フェーズが終了）
-    if (isLastPhase) {
-      set({
-        currentRound: currentRound + 1,
-        currentPhaseIndex: 0,
-        remainingSec: phases[0].durationSec,
-      });
-      return;
-    }
+        // 次のラウンドへ（現在のラウンドの最終フェーズが終了）
+        if (isLastPhase) {
+          set({
+            currentRound: currentRound + 1,
+            currentPhaseIndex: 0,
+            remainingSec: phases[0].durationSec,
+          });
+          return;
+        }
 
-    // 次のフェーズへ
-    const nextPhaseIndex = currentPhaseIndex + 1;
-    set({
-      currentPhaseIndex: nextPhaseIndex,
-      remainingSec: phases[nextPhaseIndex].durationSec,
-    });
-  },
-}));
+        // 次のフェーズへ
+        const nextPhaseIndex = currentPhaseIndex + 1;
+        set({
+          currentPhaseIndex: nextPhaseIndex,
+          remainingSec: phases[nextPhaseIndex].durationSec,
+        });
+      },
+    }),
+    {
+      name: STORAGE_KEY,
+      merge: (persisted, current) => {
+        const parsed = TimerStoreSchema.safeParse(persisted);
+        if (!parsed.success) return current;
+
+        const data = parsed.data;
+        // 復元時の特殊ルール: running → paused（リロード後にタイマーが自動で走り出すのを防止）
+        const restoredStatus = data.status === "running" ? ("paused" as const) : data.status;
+
+        return { ...current, ...data, status: restoredStatus };
+      },
+    },
+  ),
+);
