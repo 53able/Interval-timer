@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useTimerStore } from "@/stores/timer-store";
+import { usePresetStore } from "@/stores/preset-store";
 import type { Preset } from "@/schemas/timer";
 import { TimerPage } from "./timer-page";
 
@@ -74,6 +75,7 @@ const resetStore = () => {
     prepareSec: 0,
     isPreparingPhase: false,
   });
+  usePresetStore.setState({ presets: [TEST_PRESET] });
 };
 
 /**
@@ -159,140 +161,160 @@ describe("TimerPage", () => {
   });
 
   describe("残り秒数の表示", () => {
-    it("現在のフェーズの残り秒数が表示される", () => {
+    it("現在のフェーズの残り秒数がリング中央に表示される", () => {
       // Arrange
       setRunningState();
 
       // Act
-      render(<TimerPage presetId="test-preset" onGoHome={() => {}} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
 
-      // Assert
-      expect(screen.getByText(/18/)).toBeInTheDocument();
+      // Assert: SVG text 要素内に残り秒数が表示される
+      expect(screen.getByText("18")).toBeInTheDocument();
     });
   });
 
-  describe("アクションボタンの表示状態", () => {
-    it("idle状態で「スタート」ボタンが表示される", () => {
+  describe("リングのヒントテキスト表示", () => {
+    it("idle状態で「TAP TO START」ヒントが表示される", () => {
       // Arrange & Act
-      render(<TimerPage presetId="test-preset" onGoHome={() => {}} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
+
+      // Assert
+      expect(screen.getByText("TAP TO START")).toBeInTheDocument();
+    });
+
+    it("idle状態でリングに「タップでスタート」aria-label が設定される", () => {
+      // Arrange & Act
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
 
       // Assert
       expect(
-        screen.getByRole("button", { name: "スタート" }),
+        screen.getByRole("button", { name: "タップでスタート" }),
       ).toBeInTheDocument();
     });
 
-    it("running状態で「ポーズ」ボタンが表示される", () => {
+    it("running状態で「TAP TO PAUSE」ヒントが表示される", () => {
       // Arrange
       setRunningState();
 
       // Act
-      render(<TimerPage presetId="test-preset" onGoHome={() => {}} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
 
       // Assert
-      expect(
-        screen.getByRole("button", { name: "ポーズ" }),
-      ).toBeInTheDocument();
+      expect(screen.getByText("TAP TO PAUSE")).toBeInTheDocument();
     });
 
-    it("paused状態で「再開」と「リセット」ボタンが表示される", () => {
+    it("paused状態で「TAP / HOLD」ヒントが表示される", () => {
       // Arrange
       setPausedState();
 
       // Act
-      render(<TimerPage presetId="test-preset" onGoHome={() => {}} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
 
       // Assert
-      expect(
-        screen.getByRole("button", { name: "再開" }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("button", { name: "リセット" }),
-      ).toBeInTheDocument();
+      expect(screen.getByText("TAP / HOLD")).toBeInTheDocument();
     });
 
-    it("completed状態で「ホームに戻る」ボタンが表示される", () => {
+    it("completed状態で「TAP TO RESET」ヒントが表示される", () => {
       // Arrange
       setCompletedState();
 
       // Act
-      render(<TimerPage presetId="test-preset" onGoHome={() => {}} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
 
       // Assert
-      expect(
-        screen.getByRole("button", { name: "ホームに戻る" }),
-      ).toBeInTheDocument();
+      expect(screen.getByText("TAP TO RESET")).toBeInTheDocument();
+    });
+
+    it("completed状態で完了メッセージが表示される", () => {
+      // Arrange
+      setCompletedState();
+
+      // Act
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
+
+      // Assert
+      expect(screen.getByText("COMPLETE")).toBeInTheDocument();
+      expect(screen.getByText("ワークアウト完了")).toBeInTheDocument();
     });
   });
 
-  describe("ボタン操作", () => {
-    it("「スタート」クリックでストアのstartが呼ばれる", async () => {
+  describe("リングジェスチャー操作", () => {
+    it("idle状態でリングをタップするとストアがrunning状態になる", async () => {
       // Arrange
-      const user = userEvent.setup();
-      const startSpy = vi.spyOn(useTimerStore.getState(), "start");
-      render(<TimerPage presetId="test-preset" onGoHome={() => {}} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
+      const ring = screen.getByRole("button", { name: "タップでスタート" });
 
       // Act
-      await user.click(screen.getByRole("button", { name: "スタート" }));
+      tapRing(ring);
 
-      // Assert
-      expect(startSpy).toHaveBeenCalled();
+      // Assert: handleStart は async なので状態反映を待つ
+      await vi.waitFor(() => {
+        expect(useTimerStore.getState().status).toBe("running");
+      });
+      expect(useTimerStore.getState().presetId).toBe("test-preset");
     });
 
-    it("「ポーズ」クリックでストアのpauseが呼ばれる", async () => {
+    it("running状態でリングをタップするとストアがpaused状態になる", () => {
       // Arrange
       setRunningState();
-      const user = userEvent.setup();
-      const pauseSpy = vi.spyOn(useTimerStore.getState(), "pause");
-      render(<TimerPage presetId="test-preset" onGoHome={() => {}} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
+      const ring = screen.getByRole("button", { name: "タップでポーズ" });
 
       // Act
-      await user.click(screen.getByRole("button", { name: "ポーズ" }));
+      tapRing(ring);
 
       // Assert
-      expect(pauseSpy).toHaveBeenCalled();
+      expect(useTimerStore.getState().status).toBe("paused");
     });
 
-    it("「再開」クリックでストアのresumeが呼ばれる", async () => {
+    it("paused状態でリングをタップするとストアがrunning状態になる", () => {
       // Arrange
       setPausedState();
-      const user = userEvent.setup();
-      const resumeSpy = vi.spyOn(useTimerStore.getState(), "resume");
-      render(<TimerPage presetId="test-preset" onGoHome={() => {}} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
+      const ring = screen.getByRole("button", {
+        name: "タップで再開、長押しでリセット",
+      });
 
       // Act
-      await user.click(screen.getByRole("button", { name: "再開" }));
+      tapRing(ring);
 
       // Assert
-      expect(resumeSpy).toHaveBeenCalled();
+      expect(useTimerStore.getState().status).toBe("running");
     });
 
-    it("「リセット」クリックでストアのresetが呼ばれる", async () => {
+    it("paused状態でリングをロングプレスするとストアがidle状態になる", () => {
       // Arrange
+      vi.useFakeTimers();
       setPausedState();
-      const user = userEvent.setup();
-      const resetSpy = vi.spyOn(useTimerStore.getState(), "reset");
-      render(<TimerPage presetId="test-preset" onGoHome={() => {}} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
+      const ring = screen.getByRole("button", {
+        name: "タップで再開、長押しでリセット",
+      });
 
       // Act
-      await user.click(screen.getByRole("button", { name: "リセット" }));
+      longPressRing(ring);
 
       // Assert
-      expect(resetSpy).toHaveBeenCalled();
+      expect(useTimerStore.getState().status).toBe("idle");
+
+      // Cleanup
+      vi.useRealTimers();
     });
 
-    it("「ホームに戻る」クリックでonGoHomeが呼ばれる", async () => {
+    it("completed状態で完了画面をタップするとストアがidle状態になる", async () => {
       // Arrange
       setCompletedState();
       const user = userEvent.setup();
-      const handleGoHome = vi.fn();
-      render(<TimerPage presetId="test-preset" onGoHome={handleGoHome} />);
+      render(<TimerPage presetId="test-preset" onSwitchPreset={() => {}} />);
+      const resetButton = screen.getByRole("button", {
+        name: "タップでリセット",
+      });
 
       // Act
-      await user.click(screen.getByRole("button", { name: "ホームに戻る" }));
+      await user.click(resetButton);
 
       // Assert
-      expect(handleGoHome).toHaveBeenCalledOnce();
+      expect(useTimerStore.getState().status).toBe("idle");
     });
   });
 

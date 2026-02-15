@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { HomePage } from "@/pages/home-page";
+import { TimerPage } from "@/pages/timer-page";
 
 /**
  * アプリケーションのルート（画面遷移先）を表す判別共用体
@@ -40,11 +41,11 @@ export const App = () => {
       );
 
     case "timer":
-      // T6 で実装予定。仮のプレースホルダーを表示。
       return (
-        <div className="flex min-h-svh items-center justify-center bg-neutral-950 text-white">
-          <p>Timer: {currentRoute.presetId}</p>
-        </div>
+        <TimerPage
+          presetId={currentRoute.presetId}
+          onGoHome={() => setCurrentRoute({ page: "home" })}
+        />
       );
 
     case "editor":
