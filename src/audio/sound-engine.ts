@@ -39,8 +39,26 @@ const PHASE_PHRASES: Record<PhaseType, readonly string[]> = {
  */
 const COMPLETE_PHRASE: readonly string[] = ["C4", "E4", "G4", "C5"];
 
-/** シンセサイザーインスタンス（モジュール読み込み時に1度だけ生成） */
-const synth = new Tone.Synth().toDestination();
+/**
+ * シンセサイザーインスタンスのキャッシュ
+ *
+ * Web Audio API はブラウザのユーザー操作後に初めて利用可能になるため、
+ * モジュール読み込み時ではなく、初回利用時に遅延生成する。
+ * metronome-engine.ts と同じ遅延初期化パターン。
+ */
+let synth: Tone.Synth | null = null;
+
+/**
+ * シンセサイザーインスタンスを遅延生成・取得する
+ *
+ * 初回呼び出し時にシンセを生成し、2回目以降はキャッシュを返す。
+ */
+const getSynth = (): Tone.Synth => {
+  if (!synth) {
+    synth = new Tone.Synth().toDestination();
+  }
+  return synth;
+};
 
 /**
  * ノート配列を等間隔で再生する
@@ -50,7 +68,7 @@ const synth = new Tone.Synth().toDestination();
 const playSequence = (notes: readonly string[]) => {
   const now = Tone.now();
   notes.forEach((note, index) => {
-    synth.triggerAttackRelease(note, "8n", now + index * NOTE_INTERVAL_SEC);
+    getSynth().triggerAttackRelease(note, "8n", now + index * NOTE_INTERVAL_SEC);
   });
 };
 
