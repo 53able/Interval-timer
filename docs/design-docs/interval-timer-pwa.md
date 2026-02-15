@@ -136,12 +136,13 @@ erDiagram
         string id "UUID"
         string name "プリセット名"
         number totalRounds "繰り返し回数"
+        number prepareSec "準備フェーズ秒数（0で省略）"
         number createdAt "作成日時"
     }
     
     Phase {
         string id "UUID"
-        string type "work | rest | prepare"
+        string type "work | rest"
         string label "表示ラベル"
         number durationSec "秒数"
         string color "表示カラー"
@@ -154,7 +155,7 @@ erDiagram
 // Zodスキーマで定義
 const PhaseSchema = z.object({
   id: z.string().uuid(),
-  type: z.enum(["work", "rest", "prepare"]),
+  type: z.enum(["work", "rest"]),
   label: z.string(),
   durationSec: z.number().int().positive(),
   color: z.string(),
@@ -164,6 +165,7 @@ const PresetSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
   totalRounds: z.number().int().positive(),
+  prepareSec: z.number().int().nonnegative(),
   phases: z.array(PhaseSchema).min(1),
   createdAt: z.number(),
 });
@@ -265,8 +267,8 @@ const TABATA_PRESET: z.infer<typeof PresetSchema> = {
   id: "default-tabata",
   name: "Tabata",
   totalRounds: 8,
+  prepareSec: 10,
   phases: [
-    { id: "prepare", type: "prepare", label: "準備", durationSec: 10, color: "#9E9E9E" },
     { id: "work", type: "work", label: "WORK", durationSec: 20, color: "#4CAF50" },
     { id: "rest", type: "rest", label: "REST", durationSec: 10, color: "#FFC107" },
   ],
@@ -372,9 +374,19 @@ sequenceDiagram
     UI->>Sound: Tone.start()（AudioContext初期化）
     UI->>WakeLock: wakeLock.request('screen')
     UI->>Timer: start(preset)
+
+    opt prepareSec > 0（準備フェーズ：1回のみ）
+        Timer->>Store: useTimerStore → 準備フェーズ開始
+        Store->>UI: 再レンダリング（準備カウントダウン）
+        Timer->>Sound: 準備開始音
+        loop 毎秒
+            Timer->>Store: useTimerStore → 残り時間更新
+            Store->>UI: 再レンダリング
+        end
+    end
     
-    loop 各ラウンド
-        loop 各フェーズ
+    loop 各ラウンド (1..totalRounds)
+        loop 各フェーズ（work, rest）
             Timer->>Store: useTimerStore → 状態更新（フェーズ・残り時間）
             Store->>UI: 再レンダリング（残り時間表示）
             Timer->>Sound: フェーズ開始音（tonal→Tone.Synth）
@@ -638,6 +650,78 @@ flowchart TD
 
 ---
 
+## 9. タスクブレイクダウン
+
+### タスク一覧
+
+| # | タスク名 | 概要 | 見積もり | 分類 | 先行タスク | ブランチ |
+|---|---|---|---|---|---|---|
+| T0 | Design Docs PR | タスクブレイクダウン情報の追加 | S | - | - | `feature/interval-timer/00-design-docs` |
+| T1 | プロジェクト初期構築 | Vite + React + Hono + Biome + Tailwind + shadcn/ui のセットアップ | S | IMPLEMENT | T0 | `feature/interval-timer/01-project-setup` |
+| T2 | データスキーマ定義 | Zodスキーマ（Phase, Preset）+ デフォルトTabataプリセット + 型エクスポート | S | INTERFACE | T1 | `feature/interval-timer/02-data-schema` |
+| T3 | 状態管理ストア | Zustand usePresetStore（persist + Zod merge）+ useTimerStore + ユニットテスト | M | IMPLEMENT | T2 | `feature/interval-timer/03-state-store` |
+| T4 | タイマーエンジン | rAF + Web Worker + visibilitychange + フェーズ進行ロジック + ユニットテスト | M | IMPLEMENT | T3 | `feature/interval-timer/04-timer-engine` |
+| T5 | ホーム画面 | App shell + ルーティング + プリセット一覧 + 新規作成ボタン | M | IMPLEMENT | T3 | `feature/interval-timer/05-home-screen` |
+| T6 | タイマー画面 | マルチリングSVG + react-spring アニメーション + アクションボタン + カウントダウン | L | IMPLEMENT | T4, T5 | `feature/interval-timer/06-timer-screen` |
+| T7 | プリセット編集画面 | フェーズ追加・削除・並び替え + ラウンド数設定 + Zodバリデーション | M | IMPLEMENT | T5 | `feature/interval-timer/07-preset-editor` |
+| T8 | サウンド・通知 | Tone.js + tonal 音声エンジン + Vibration API + Wake Lock API | M | IMPLEMENT | T4 | `feature/interval-timer/08-sound-notify` |
+| T9 | PWA対応 | Vite PWA Plugin + Service Worker + マニフェスト + オフライン動作確認 | M | IMPLEMENT | T6, T7, T8 | `feature/interval-timer/09-pwa-setup` |
+
+> **注**: T1（scaffolding）はCLI自動生成のboilerplateが大半のため、300行超を許容する
+
+### 依存関係図
+
+```mermaid
+graph LR
+    T0["T0: Design Docs PR"] --> T1["T1: プロジェクト初期構築"]
+    T1 --> T2["T2: データスキーマ定義"]
+    T2 --> T3["T3: 状態管理ストア"]
+    T3 --> T4["T4: タイマーエンジン"]
+    T3 --> T5["T5: ホーム画面"]
+    T4 --> T6["T6: タイマー画面"]
+    T5 --> T6
+    T5 --> T7["T7: プリセット編集画面"]
+    T4 --> T8["T8: サウンド・通知"]
+    T6 --> T9["T9: PWA対応"]
+    T7 --> T9
+    T8 --> T9
+```
+
+### ブランチ戦略（スタック方式）
+
+依存グラフにはT3からの分岐があるが、**スタック方式で線形化**する。スタックでは各ブランチが前のすべての変更を累積的に含むため、分岐があっても問題ない。
+
+| ブランチ | 親 | マージ順 | 備考 |
+|---|---|---|---|
+| `feature/interval-timer/00-design-docs` | `main` | 0 | Design Docs PR（設計レビュー用） |
+| `feature/interval-timer/01-project-setup` | `/00-design-docs` | 1 | scaffolding（300行超許容） |
+| `feature/interval-timer/02-data-schema` | `/01-project-setup` | 2 | INTERFACE: テスト不要 |
+| `feature/interval-timer/03-state-store` | `/02-data-schema` | 3 | |
+| `feature/interval-timer/04-timer-engine` | `/03-state-store` | 4 | |
+| `feature/interval-timer/05-home-screen` | `/04-timer-engine` | 5 | |
+| `feature/interval-timer/06-timer-screen` | `/05-home-screen` | 6 | |
+| `feature/interval-timer/07-preset-editor` | `/06-timer-screen` | 7 | |
+| `feature/interval-timer/08-sound-notify` | `/07-preset-editor` | 8 | |
+| `feature/interval-timer/09-pwa-setup` | `/08-sound-notify` | 9 | |
+
+> **整合性チェック**: スタック方式では各ブランチが累積的に全変更を含む
+> - T5（T3依存）→ /05 は /03 以前の全変更を含む ✅
+> - T6（T4+T5依存）→ /06 は /04 と /05 の全変更を含む ✅
+> - T8（T4依存）→ /08 は /04 以前の全変更を含む ✅
+
+### クリティカルパス
+
+T0 → T1 → T2 → T3 → T4 → T6 → T9
+
+### 見積もりサマリー
+
+- 総タスク数: 10（T0含む）
+- S（小）: 3件（T0, T1, T2）
+- M（中）: 6件（T3, T4, T5, T7, T8, T9）
+- L（大）: 1件（T6）
+
+---
+
 ## 更新履歴
 
 | 日付 | 変更内容 | 理由 |
@@ -649,3 +733,5 @@ flowchart TD
 | 2026-02-15 | UIコンポーネントにshadcn/uiを採用、スタイリングをCSS ModulesからTailwind CSSに変更 | shadcn/uiはRadix UIベースのアクセシブルなコンポーネント群。コードコピー方式でフルカスタマイズ可能。Tailwind CSSはshadcn/uiの基盤として必須 |
 | 2026-02-15 | 開発ツールチェーン確定（Biome / tsgo）、状態管理にZustandを採用、状態管理アーキテクチャセクションを追加 | Biomeでリンター+フォーマッターを統一。tsgoで高速型チェック。ZustandストアはZodスキーマベースで型安全なlocalStorage永続化を実現 |
 | 2026-02-15 | アニメーションに@react-spring/webを採用、アニメーション戦略セクションを追加 | スプリング物理でSVGリング進行・フェーズ切替・カウントダウンを滑らかに制御。Zustandと同じpmndrsエコシステムで親和性が高い |
+| 2026-02-15 | タスクブレイクダウン（10タスク、スタック方式）を追加 | ADE Phase 1完了。T0-T9の依存関係・ブランチ戦略・INTERFACE/IMPLEMENT分類を策定 |
+| 2026-02-15 | prepareフェーズをPresetのトップレベルフィールド（prepareSec）に分離。phases配列はwork/restのみ。処理フローを修正 | phases配列内のprepareが毎ラウンド実行される不具合を修正。合計時間計算（4:10）との矛盾を解消 |
