@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { initAudio } from "@/audio/sound-engine";
 import {
@@ -32,7 +32,7 @@ const DEFAULT_VOLUME = 50;
  * - 制約: BPM範囲(140〜200)と音量範囲(0〜100)を制限
  * - マッピング: +/- ボタンの直感的な対応
  */
-export const BpmControl = () => {
+export const BpmControl = memo(function BpmControl() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [bpm, setBpm] = useState(DEFAULT_BPM);
   const [volume, setVolume] = useState(DEFAULT_VOLUME);
@@ -140,4 +140,4 @@ export const BpmControl = () => {
       </div>
     </div>
   );
-};
+});

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, memo } from "react";
 import type { PhaseType } from "@/schemas/timer";
 
 /**
@@ -216,10 +216,10 @@ type PhaseDurationStepperProps = {
  * - 発見可能性: "← swipe →" ヒント + タップ可能なドットで操作方法を明示
  * - 制約: ステップスナップで意図しない値を防止
  */
-export const PhaseDurationStepper = ({
+export const PhaseDurationStepper = memo(function PhaseDurationStepper({
   phases,
   onChangeDuration,
-}: PhaseDurationStepperProps) => {
+}: PhaseDurationStepperProps) {
   /** 指定タイプのフェーズの現在の秒数を取得する */
   const getDuration = (phaseType: PhaseType): number =>
     phases.find((p) => p.type === phaseType)?.durationSec ?? MIN_DURATION_SEC;
@@ -238,4 +238,4 @@ export const PhaseDurationStepper = ({
       />
     </div>
   );
-};
+});

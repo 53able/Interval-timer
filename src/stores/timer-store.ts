@@ -1,4 +1,10 @@
-import type { Preset, PhaseType } from "@/schemas/timer";
+import {
+  type Preset,
+  type PhaseType,
+  MAX_TOTAL_ROUNDS,
+  MIN_PHASE_DURATION_SEC,
+  MAX_PHASE_DURATION_SEC,
+} from "@/schemas/timer";
 import { create } from "zustand";
 
 /**
@@ -32,15 +38,6 @@ type TimerStoreState = {
   /** 現在、準備フェーズを実行中かどうか */
   readonly isPreparingPhase: boolean;
 };
-
-/** セット回数の上限値 */
-const MAX_TOTAL_ROUNDS = 99;
-
-/** フェーズ秒数の下限値 */
-const MIN_PHASE_DURATION_SEC = 5;
-
-/** フェーズ秒数の上限値 */
-const MAX_PHASE_DURATION_SEC = 300;
 
 /** タイマーストアのアクション型 */
 type TimerStoreActions = {

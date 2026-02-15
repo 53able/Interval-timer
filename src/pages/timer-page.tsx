@@ -1,8 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { addSeconds, format } from "date-fns";
 import { useTimerStore } from "@/stores/timer-store";
 import { usePresetStore } from "@/stores/preset-store";
-import type { Phase, PhaseType } from "@/schemas/timer";
+import {
+  type Phase,
+  type PhaseType,
+  MAX_TOTAL_ROUNDS,
+  MIN_PHASE_DURATION_SEC,
+  MAX_PHASE_DURATION_SEC,
+} from "@/schemas/timer";
 import { useTimerEngine } from "@/hooks/use-timer-engine";
 import type { TimerEngineCallbacks } from "@/hooks/use-timer-engine";
 import { useWakeLock } from "@/hooks/use-wake-lock";
@@ -24,6 +30,21 @@ const LEGEND_ITEMS = [
   { label: "WORK", color: RING_COLORS.work },
   { label: "REST", color: RING_COLORS.rest },
 ] as const;
+
+/** 凡例 JSX（静的コンテンツのためモジュールレベルでホイスト: Rule 5.3） */
+const legendElement = (
+  <div className="mt-6 flex w-full max-w-xs justify-center gap-3">
+    {LEGEND_ITEMS.map((item) => (
+      <span key={item.label} className="flex items-center gap-1 text-neutral-400">
+        <span
+          className="inline-block h-3 w-3 rounded-full"
+          style={{ backgroundColor: item.color }}
+        />
+        <span className="text-xs tracking-wide">{item.label}</span>
+      </span>
+    ))}
+  </div>
+);
 
 /** TimerPage のプロパティ型 */
 type TimerPageProps = {
@@ -107,15 +128,6 @@ const formatEstimatedEndTime = (remainingSec: number): string =>
  * - Wake Lock: タイマー実行中はスクリーンスリープを防止
  * - AudioContext 初期化: リングタップ時にブラウザのオートプレイポリシーを解除
  */
-/** セット回数の上限値 */
-const MAX_TOTAL_ROUNDS = 99;
-
-/** フェーズ秒数の下限値 */
-const MIN_PHASE_DURATION_SEC = 5;
-
-/** フェーズ秒数の上限値 */
-const MAX_PHASE_DURATION_SEC = 300;
-
 export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
   const status = useTimerStore((s) => s.status);
   const storeRemainingSec = useTimerStore((s) => s.remainingSec);
@@ -145,18 +157,18 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
   const [idlePhases, setIdlePhases] = useState<Phase[]>(preset?.phases ?? []);
   const [idleTotalRounds, setIdleTotalRounds] = useState(preset?.totalRounds ?? 1);
 
-  /** idle 時のラウンド数変更ハンドラ */
-  const handleIdleUpdateRounds = (newTotalRounds: number) => {
+  /** idle 時のラウンド数変更ハンドラ（安定参照: 引数のみで完結） */
+  const handleIdleUpdateRounds = useCallback((newTotalRounds: number) => {
     setIdleTotalRounds(Math.max(1, Math.min(newTotalRounds, MAX_TOTAL_ROUNDS)));
-  };
+  }, []);
 
-  /** idle 時のフェーズ秒数変更ハンドラ */
-  const handleIdleUpdateDuration = (phaseType: PhaseType, newDurationSec: number) => {
+  /** idle 時のフェーズ秒数変更ハンドラ（安定参照: functional setState で stale closure を回避） */
+  const handleIdleUpdateDuration = useCallback((phaseType: PhaseType, newDurationSec: number) => {
     const clamped = Math.max(MIN_PHASE_DURATION_SEC, Math.min(newDurationSec, MAX_PHASE_DURATION_SEC));
     setIdlePhases((prev) =>
       prev.map((p) => (p.type === phaseType ? { ...p, durationSec: clamped } : p)),
     );
-  };
+  }, []);
 
   /**
    * 表示用の値を導出する
@@ -261,10 +273,10 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
   };
 
   /** プリセットを切り替える（タイマーをリセットしてから新しいプリセットをロード） */
-  const handleSwitchPreset = (newPresetId: string) => {
+  const handleSwitchPreset = useCallback((newPresetId: string) => {
     reset();
     onSwitchPreset(newPresetId);
-  };
+  }, [reset, onSwitchPreset]);
 
   /**
    * リングジェスチャーのハンドラとヒントテキストを状態から導出する
@@ -369,17 +381,7 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
           />
 
           {/* 凡例（P5: 補助情報は低明度で控えめに） */}
-          <div className="mt-6 flex w-full max-w-xs justify-center gap-3">
-            {LEGEND_ITEMS.map((item) => (
-              <span key={item.label} className="flex items-center gap-1 text-neutral-400">
-                <span
-                  className="inline-block h-3 w-3 rounded-full"
-                  style={{ backgroundColor: item.color }}
-                />
-                <span className="text-xs tracking-wide">{item.label}</span>
-              </span>
-            ))}
-          </div>
+          {legendElement}
 
           {/* 時間情報ブロック: 終了予定を主役、残り時間を従属（常に表示） */}
           <div className="mt-4 flex flex-col items-center gap-1">
