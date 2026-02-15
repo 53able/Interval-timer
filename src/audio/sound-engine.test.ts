@@ -5,11 +5,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *
  * ブラウザの Web Audio API に依存するため、jsdom 環境ではモックで代替する。
  * triggerAttackRelease の呼び出し（ノート名・デュレーション・タイミング）を検証する。
+ *
+ * vi.hoisted() で宣言することで、vi.mock のファクトリ巻き上げ時に参照可能にする。
  */
-const mockTriggerAttackRelease = vi.fn();
-const mockToDestination = vi.fn(function (this: unknown) {
-  return this;
-});
+const { mockTriggerAttackRelease, mockToDestination } = vi.hoisted(() => ({
+  mockTriggerAttackRelease: vi.fn(),
+  mockToDestination: vi.fn(function (this: unknown) {
+    return this;
+  }),
+}));
 
 vi.mock("tone", () => ({
   start: vi.fn().mockResolvedValue(undefined),
