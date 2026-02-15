@@ -60,3 +60,34 @@ export const PresetSchema = z.object({
 
 /** プリセットの型 */
 export type Preset = z.infer<typeof PresetSchema>;
+
+// ---------------------------------------------------------------------------
+// タイマー制約定数
+// ---------------------------------------------------------------------------
+
+/** セット回数の上限値 */
+export const MAX_TOTAL_ROUNDS = 99;
+
+/** フェーズ秒数の下限値 */
+export const MIN_PHASE_DURATION_SEC = 5;
+
+/** フェーズ秒数の上限値 */
+export const MAX_PHASE_DURATION_SEC = 300;
+
+// ---------------------------------------------------------------------------
+// プリセット表示ユーティリティ
+// ---------------------------------------------------------------------------
+
+/**
+ * プリセットのフェーズ概要テキストを生成する
+ *
+ * phases 配列（work/rest のみ）の秒数とラベルを
+ * "20s WORK / 10s REST × 8" の形式で返す。
+ *
+ * @param preset - 表示対象のプリセット
+ * @returns フェーズ概要テキスト
+ */
+export const formatPhaseSummary = (preset: Preset): string => {
+  const phaseDescriptions = preset.phases.map((phase) => `${phase.durationSec}s ${phase.label}`);
+  return `${phaseDescriptions.join(" / ")} × ${preset.totalRounds}`;
+};

@@ -1,7 +1,6 @@
+import { memo } from "react";
+import { MAX_TOTAL_ROUNDS } from "@/schemas/timer";
 import { Button } from "@/components/ui/button";
-
-/** セット回数の上限値（timer-store と同一） */
-const MAX_TOTAL_ROUNDS = 99;
 
 /** RoundStepper のプロパティ型 */
 type RoundStepperProps = {
@@ -26,12 +25,12 @@ type RoundStepperProps = {
  * - 「-」ボタン: 現在ラウンド以下に減らせないとき disabled
  * - 「+」ボタン: 上限（99）に達したとき disabled
  */
-export const RoundStepper = ({
+export const RoundStepper = memo(function RoundStepper({
   currentRound,
   totalRounds,
   isPreparingPhase,
   onChangeTotalRounds,
-}: RoundStepperProps) => {
+}: RoundStepperProps) {
   const canDecrement = isPreparingPhase
     ? totalRounds > 1
     : totalRounds > currentRound;
@@ -96,4 +95,4 @@ export const RoundStepper = ({
       </Button>
     </div>
   );
-};
+});

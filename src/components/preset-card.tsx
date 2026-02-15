@@ -1,6 +1,7 @@
+import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Preset } from "@/schemas/timer";
+import { type Preset, formatPhaseSummary } from "@/schemas/timer";
 
 /** PresetCard のプロパティ型 */
 type PresetCardProps = {
@@ -12,18 +13,6 @@ type PresetCardProps = {
   readonly onEdit: (presetId: string) => void;
   /** 「削除」ボタン押下時のコールバック */
   readonly onDelete: (presetId: string) => void;
-};
-
-/**
- * プリセットのフェーズ概要テキストを生成する
- *
- * phases 配列（work/rest のみ）の秒数とラベルを
- * "20s WORK / 10s REST × 8" の形式で返す。
- */
-export const formatPhaseSummary = (preset: Preset): string => {
-  const phaseDescriptions = preset.phases.map((phase) => `${phase.durationSec}s ${phase.label}`);
-
-  return `${phaseDescriptions.join(" / ")} × ${preset.totalRounds}`;
 };
 
 /** P5モーション: ボタン共通のアニメーションクラス */
@@ -38,7 +27,7 @@ const BUTTON_MOTION =
  *
  * **明度による階層化**: プリセット名(明) vs 概要テキスト(暗)
  */
-export const PresetCard = ({ preset, onStart, onEdit, onDelete }: PresetCardProps) => {
+export const PresetCard = memo(function PresetCard({ preset, onStart, onEdit, onDelete }: PresetCardProps) {
   return (
     <Card className="border-red-900/40 bg-neutral-900 text-white transition-all duration-300 hover:-translate-y-0.5 hover:border-red-700/60 hover:shadow-lg hover:shadow-red-950/20">
       <CardHeader>
@@ -69,4 +58,4 @@ export const PresetCard = ({ preset, onStart, onEdit, onDelete }: PresetCardProp
       </CardFooter>
     </Card>
   );
-};
+});

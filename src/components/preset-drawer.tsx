@@ -2,8 +2,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { usePresetStore } from "@/stores/preset-store";
 import { useTimerStore } from "@/stores/timer-store";
-import { PresetSchema } from "@/schemas/timer";
-import { formatPhaseSummary } from "@/components/preset-card";
+import { PresetSchema, formatPhaseSummary } from "@/schemas/timer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
