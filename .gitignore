@@ -1,0 +1,6 @@
+.cursor/
+tmp/
+unsaved/
+node_modules/
+dist/
+.env.*
