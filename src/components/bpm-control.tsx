@@ -10,22 +10,21 @@ import {
   setMetronomeBpm,
   setMetronomeVolume,
 } from "@/audio/metronome-engine";
+import { useBpmStore } from "@/stores/bpm-store";
 
 /** P5モーション: ボタン共通のアニメーションクラス */
 const MOTION_CLASS =
   "transition-all duration-200 hover:scale-110 active:scale-90" as const;
-
-/** デフォルトBPM */
-const DEFAULT_BPM = 160;
-
-/** デフォルト音量（パーセンテージ） */
-const DEFAULT_VOLUME = 50;
 
 /**
  * BPMメトロノームコントロールコンポーネント
  *
  * 片手操作でBPM（140〜200）と音量（0〜100%）を調節しながら
  * メトロノームのON/OFFを制御する。
+ * BPM・音量は bpm-store で localStorage に永続化される。
+ *
+ * **注意**: 再生状態（isPlaying）はブラウザの自動再生制限により
+ * 永続化せず、常に停止状態から開始する。
  *
  * **UXベストプラクティス**:
  * - フィードバック: ON/OFF状態が色で明確に識別可能
@@ -34,8 +33,10 @@ const DEFAULT_VOLUME = 50;
  */
 export const BpmControl = memo(function BpmControl() {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [bpm, setBpm] = useState(DEFAULT_BPM);
-  const [volume, setVolume] = useState(DEFAULT_VOLUME);
+  const bpm = useBpmStore((s) => s.bpm);
+  const volume = useBpmStore((s) => s.volume);
+  const setBpm = useBpmStore((s) => s.setBpm);
+  const setVolume = useBpmStore((s) => s.setVolume);
 
   /** メトロノームのON/OFF切替 */
   const handleToggle = useCallback(async () => {
@@ -59,7 +60,7 @@ export const BpmControl = memo(function BpmControl() {
         setMetronomeBpm(clamped);
       }
     },
-    [isPlaying],
+    [isPlaying, setBpm],
   );
 
   /** 音量変更（リアルタイム反映） */
@@ -71,7 +72,7 @@ export const BpmControl = memo(function BpmControl() {
         setMetronomeVolume(clamped);
       }
     },
-    [isPlaying],
+    [isPlaying, setVolume],
   );
 
   return (

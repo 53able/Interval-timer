@@ -1,14 +1,8 @@
-import { useState, useMemo, useCallback } from "react";
+import { useMemo, useCallback } from "react";
 import { addSeconds, format } from "date-fns";
 import { useTimerStore } from "@/stores/timer-store";
 import { usePresetStore } from "@/stores/preset-store";
-import {
-  type Phase,
-  type PhaseType,
-  MAX_TOTAL_ROUNDS,
-  MIN_PHASE_DURATION_SEC,
-  MAX_PHASE_DURATION_SEC,
-} from "@/schemas/timer";
+import { useAppStore } from "@/stores/app-store";
 import { useTimerEngine } from "@/hooks/use-timer-engine";
 import type { TimerEngineCallbacks } from "@/hooks/use-timer-engine";
 import { useWakeLock } from "@/hooks/use-wake-lock";
@@ -148,27 +142,15 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
   const preset = presets.find((p) => p.id === presetId);
 
   /**
-   * idle 時の編集用ローカル state
+   * idle 時の編集状態（app-store で localStorage に永続化）
    *
-   * プリセットの初期値をコピーし、スタート前にステッパーで自由に変更可能。
-   * key={presetId} でコンポーネントがリマウントされるため、
-   * プリセット切替時は自然に初期値へリセットされる。
+   * プリセットの初期値をベースに、スタート前にステッパーで自由に変更可能。
+   * プリセット切替時は setCurrentPresetId 内で新プリセットのデフォルトにリセットされる。
    */
-  const [idlePhases, setIdlePhases] = useState<Phase[]>(preset?.phases ?? []);
-  const [idleTotalRounds, setIdleTotalRounds] = useState(preset?.totalRounds ?? 1);
-
-  /** idle 時のラウンド数変更ハンドラ（安定参照: 引数のみで完結） */
-  const handleIdleUpdateRounds = useCallback((newTotalRounds: number) => {
-    setIdleTotalRounds(Math.max(1, Math.min(newTotalRounds, MAX_TOTAL_ROUNDS)));
-  }, []);
-
-  /** idle 時のフェーズ秒数変更ハンドラ（安定参照: functional setState で stale closure を回避） */
-  const handleIdleUpdateDuration = useCallback((phaseType: PhaseType, newDurationSec: number) => {
-    const clamped = Math.max(MIN_PHASE_DURATION_SEC, Math.min(newDurationSec, MAX_PHASE_DURATION_SEC));
-    setIdlePhases((prev) =>
-      prev.map((p) => (p.type === phaseType ? { ...p, durationSec: clamped } : p)),
-    );
-  }, []);
+  const idlePhases = useAppStore((s) => s.idlePhases);
+  const idleTotalRounds = useAppStore((s) => s.idleTotalRounds);
+  const updateIdleTotalRounds = useAppStore((s) => s.updateIdleTotalRounds);
+  const updateIdlePhaseDuration = useAppStore((s) => s.updateIdlePhaseDuration);
 
   /**
    * 表示用の値を導出する
@@ -279,58 +261,49 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
   }, [reset, onSwitchPreset]);
 
   /**
-   * リングジェスチャーのハンドラとヒントテキストを状態から導出する
+   * 状態ごとのリング操作設定を一括導出する
    *
+   * ジェスチャーマッピング:
    * - idle: タップ → Start
    * - running: タップ → Pause
    * - paused: タップ → Resume、ロングプレス → Reset
    * - completed: タップ → Reset
    */
-  const ringTapHandler = (() => {
+  const ringConfig = (() => {
     switch (status) {
       case "idle":
-        return handleStart;
+        return {
+          onTap: handleStart,
+          onLongPress: undefined,
+          hintText: "TAP TO START",
+          ariaLabel: "タップでスタート",
+        };
       case "running":
-        return pause;
+        return {
+          onTap: pause,
+          onLongPress: undefined,
+          hintText: "TAP TO PAUSE",
+          ariaLabel: "タップでポーズ",
+        };
       case "paused":
-        return resume;
+        return {
+          onTap: resume,
+          onLongPress: reset,
+          hintText: "TAP / HOLD",
+          ariaLabel: "タップで再開、長押しでリセット",
+        };
       case "completed":
-        return reset;
-    }
-  })();
-
-  const ringLongPressHandler = status === "paused" ? reset : undefined;
-
-  /** 状態ごとのリング中央ヒントテキスト */
-  const ringHintText = (() => {
-    switch (status) {
-      case "idle":
-        return "TAP TO START";
-      case "running":
-        return "TAP TO PAUSE";
-      case "paused":
-        return "TAP / HOLD";
-      case "completed":
-        return "";
-    }
-  })();
-
-  /** 状態ごとのリング aria-label */
-  const ringAriaLabel = (() => {
-    switch (status) {
-      case "idle":
-        return "タップでスタート";
-      case "running":
-        return "タップでポーズ";
-      case "paused":
-        return "タップで再開、長押しでリセット";
-      case "completed":
-        return "タップでリセット";
+        return {
+          onTap: reset,
+          onLongPress: undefined,
+          hintText: "",
+          ariaLabel: "タップでリセット",
+        };
     }
   })();
 
   return (
-    <div className="flex min-h-svh flex-col items-center bg-[#0a0a0a] px-4 pt-4 pb-24 text-white">
+    <div className="flex min-h-svh flex-col items-center bg-[#0a0a0a] px-4 pt-4 pb-8 text-white">
       {/* ヘッダー: プリセット名（常に表示） */}
       <header className="mb-4 w-full max-w-xs">
         <h1
@@ -374,10 +347,10 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
             workProgress={workProgress}
             restProgress={restProgress}
             remainingSec={ringRemainingSec}
-            hintText={ringHintText}
-            onTap={ringTapHandler}
-            onLongPress={ringLongPressHandler}
-            ariaLabel={ringAriaLabel}
+            hintText={ringConfig.hintText}
+            onTap={ringConfig.onTap}
+            onLongPress={ringConfig.onLongPress}
+            ariaLabel={ringConfig.ariaLabel}
           />
 
           {/* 凡例（P5: 補助情報は低明度で控えめに） */}
@@ -405,11 +378,11 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
               currentRound={currentRound}
               totalRounds={displayTotalRounds}
               isPreparingPhase={status === "idle" || isPreparingPhase}
-              onChangeTotalRounds={isActive ? updateTotalRounds : handleIdleUpdateRounds}
+              onChangeTotalRounds={isActive ? updateTotalRounds : updateIdleTotalRounds}
             />
             <PhaseDurationStepper
               phases={displayPhases}
-              onChangeDuration={isActive ? updatePhaseDuration : handleIdleUpdateDuration}
+              onChangeDuration={isActive ? updatePhaseDuration : updateIdlePhaseDuration}
             />
           </div>
 
@@ -420,10 +393,13 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
         </div>
       )}
 
-      {/* ボトムドロワー: プリセット一覧 + 登録（片手操作） */}
+      {/* 右サイドドロワー: プリセット一覧 + 登録 */}
       <PresetDrawer
         currentPresetId={presetId}
         onSelectPreset={handleSwitchPreset}
+        currentPhases={displayPhases}
+        currentTotalRounds={displayTotalRounds}
+        currentPrepareSec={displayPrepareSec}
       />
     </div>
   );

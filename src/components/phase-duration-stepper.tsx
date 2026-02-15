@@ -1,23 +1,21 @@
-import { useState, useRef, useCallback, memo } from "react";
+import { useCallback, memo } from "react";
 import type { PhaseType } from "@/schemas/timer";
+import { useAppStore } from "@/stores/app-store";
 
 /**
  * スケール定義
  *
  * 短い時間帯と長い時間帯を分割して、各レンジで精密な調整を可能にする。
- * - ページ0: 5〜60秒（5秒刻み）→ 短いインターバルの微調整
- * - ページ1: 60〜300秒（10秒刻み）→ 長いインターバルの調整
+ * - ページ0: 5〜60秒（1秒刻み）→ 短いインターバルの微調整
+ * - ページ1: 60〜300秒（1秒刻み）→ 長いインターバルの調整
  */
 const SCALES = [
-  { min: 5, max: 60, step: 1 },
-  { min: 60, max: 300, step: 1 },
+  { min: 5, max: 60, step: 1, label: "Short" },
+  { min: 60, max: 300, step: 1, label: "Long" },
 ] as const;
 
 /** スケールの型 */
 type Scale = (typeof SCALES)[number];
-
-/** スワイプ判定の最小移動量（px） */
-const SWIPE_THRESHOLD_PX = 30;
 
 /** フェーズ秒数の下限値 */
 const MIN_DURATION_SEC = 5;
@@ -28,17 +26,14 @@ const PHASE_CONFIG = {
   rest: { label: "REST", colorClass: "text-amber-400/80" },
 } as const;
 
-/** 値が属する初期スケールインデックスを返す */
-const getInitialScaleIndex = (sec: number): number => (sec > 60 ? 1 : 0);
-
 /** 値をスケール範囲にクランプしてステップに丸める */
 const clampToScale = (value: number, scale: Scale): number => {
   const clamped = Math.max(scale.min, Math.min(value, scale.max));
   return Math.round(clamped / scale.step) * scale.step;
 };
 
-/** PhaseSwipeSlider のプロパティ型 */
-type PhaseSwipeSliderProps = {
+/** PhaseScaleSlider のプロパティ型 */
+type PhaseScaleSliderProps = {
   /** フェーズの種類 */
   readonly phaseType: PhaseType;
   /** 現在の秒数 */
@@ -51,27 +46,23 @@ type PhaseSwipeSliderProps = {
 };
 
 /**
- * スワイプ / タップでスケール切替可能なフェーズ秒数スライダー
+ * タブでスケール切替可能なフェーズ秒数スライダー
  *
- * 短い時間帯（5-60s）と長い時間帯（60-300s）の2スケールを切り替えて、
- * 各レンジで精密な調整を可能にする。
+ * 短い時間帯（5-60s）と長い時間帯（60-300s）の2スケールを
+ * Short / Long タブで切り替えて、各レンジで精密な調整を可能にする。
  *
- * **切替操作**:
- * - スライダー以外のエリア（ラベル行・スケール表示行）で横スワイプ
- * - ドットインジケーターをタップ
- *
- * ※ input[type=range] の上では水平スワイプとスライダー操作が物理的に競合するため、
- *   スライダー操作を優先し、スワイプはスライダー外のエリアで検知する。
+ * **エラー防止**: スワイプではなくタブ切替にすることで、
+ * スライダー操作との水平ジェスチャー競合を構造的に排除する。
  */
-const PhaseSwipeSlider = ({
+const PhaseScaleSlider = ({
   phaseType,
   durationSec,
   onChangeDuration,
-}: PhaseSwipeSliderProps) => {
-  const [scaleIndex, setScaleIndex] = useState(() =>
-    getInitialScaleIndex(durationSec),
+}: PhaseScaleSliderProps) => {
+  const scaleIndex = useAppStore((s) =>
+    phaseType === "work" ? s.workScaleIndex : s.restScaleIndex,
   );
-  const touchStartXRef = useRef(0);
+  const setStoreScaleIndex = useAppStore((s) => s.setScaleIndex);
 
   const config = PHASE_CONFIG[phaseType];
 
@@ -80,66 +71,40 @@ const PhaseSwipeSlider = ({
     (newIndex: number) => {
       if (newIndex === scaleIndex || newIndex < 0 || newIndex >= SCALES.length)
         return;
-      setScaleIndex(newIndex);
+      setStoreScaleIndex(phaseType, newIndex);
       const clamped = clampToScale(durationSec, SCALES[newIndex]);
       if (clamped !== durationSec) {
         onChangeDuration(phaseType, clamped);
       }
     },
-    [scaleIndex, durationSec, onChangeDuration, phaseType],
-  );
-
-  /** タッチ開始位置を記録 */
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartXRef.current = e.touches[0].clientX;
-  }, []);
-
-  /** タッチ終了時にスワイプ判定してスケール切替 */
-  const handleTouchEnd = useCallback(
-    (e: React.TouchEvent) => {
-      const deltaX = e.changedTouches[0].clientX - touchStartXRef.current;
-      if (Math.abs(deltaX) < SWIPE_THRESHOLD_PX) return;
-
-      // 左スワイプ → 次のスケール、右スワイプ → 前のスケール
-      const nextIndex =
-        deltaX < 0
-          ? Math.min(scaleIndex + 1, SCALES.length - 1)
-          : Math.max(scaleIndex - 1, 0);
-
-      switchScale(nextIndex);
-    },
-    [scaleIndex, switchScale],
+    [scaleIndex, durationSec, onChangeDuration, phaseType, setStoreScaleIndex],
   );
 
   return (
-    <div
-      className="flex flex-col gap-1"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-    >
-      {/* ヘッダー: ラベル + タップ可能インジケーター + 現在値 */}
+    <div className="flex flex-col gap-1">
+      {/* ヘッダー: ラベル + スケールタブ + 現在値 */}
       <div className="flex items-center justify-between py-1">
         <span className={`text-xs tracking-wide ${config.colorClass}`}>
           {config.label}
         </span>
         <div className="flex items-center gap-2">
-          {/* タップ可能なスケールインジケーター */}
-          <div className="flex gap-0.5" role="tablist" aria-label="スケール切替">
+          {/* Short / Long スケールタブ */}
+          <div className="flex gap-0.5 rounded-md bg-neutral-800/60 p-0.5" role="tablist" aria-label="スケール切替">
             {SCALES.map((scale, i) => (
               <button
                 key={scale.min}
                 type="button"
                 role="tab"
                 aria-selected={i === scaleIndex}
-                aria-label={`${scale.min}〜${scale.max}秒`}
+                aria-label={`${scale.label}（${scale.min}〜${scale.max}秒）`}
                 onClick={() => switchScale(i)}
-                className="flex h-6 w-6 items-center justify-center"
+                className={`rounded px-2 py-0.5 text-[10px] font-bold tracking-wide transition-all duration-200 ${
+                  i === scaleIndex
+                    ? "bg-neutral-700 text-white"
+                    : "text-neutral-500 hover:text-neutral-300"
+                }`}
               >
-                <span
-                  className={`block h-1.5 w-1.5 rounded-full transition-colors duration-200 ${
-                    i === scaleIndex ? "bg-white" : "bg-neutral-600"
-                  }`}
-                />
+                {scale.label}
               </button>
             ))}
           </div>
@@ -167,7 +132,6 @@ const PhaseSwipeSlider = ({
                 onChange={(e) =>
                   onChangeDuration(phaseType, Number(e.target.value))
                 }
-                onTouchStart={(e) => e.stopPropagation()}
                 className={`phase-slider phase-slider-${phaseType}`}
                 aria-label={`${config.label}秒数（${scale.min}〜${scale.max}秒）`}
               />
@@ -176,12 +140,11 @@ const PhaseSwipeSlider = ({
         </div>
       </div>
 
-      {/* スケール端ラベル（スワイプ検知エリアを兼ねる） */}
-      <div className="flex justify-between px-1.5 py-1">
+      {/* スケール端ラベル */}
+      <div className="flex justify-between px-1.5">
         <span className="text-[10px] text-neutral-600">
           {SCALES[scaleIndex].min}s
         </span>
-        <span className="text-[10px] text-neutral-500">← swipe →</span>
         <span className="text-[10px] text-neutral-600">
           {SCALES[scaleIndex].max}s
         </span>
@@ -205,15 +168,15 @@ type PhaseDurationStepperProps = {
 };
 
 /**
- * フェーズ秒数をリアルタイムで変更するスワイプカルーセルコンポーネント
+ * フェーズ秒数をリアルタイムで変更するスケールタブ付きスライダーコンポーネント
  *
  * 各フェーズ（WORK / REST）ごとに、短い時間帯（5-60s）と長い時間帯（60-300s）の
- * 2スケールを切り替えて精密な調整を可能にする。
+ * 2スケールを Short / Long タブで切り替えて精密な調整を可能にする。
  *
  * **UXベストプラクティス**:
- * - エラー防止: スライダー操作とスワイプの競合を構造的に分離
- * - フィードバック: ドットインジケーター + スケール端ラベルで状態を即座表示
- * - 発見可能性: "← swipe →" ヒント + タップ可能なドットで操作方法を明示
+ * - エラー防止: タブ切替によりスライダーとのジェスチャー競合をゼロに
+ * - フィードバック: タブの選択状態 + スケール端ラベルで状態を即座表示
+ * - 発見可能性: Short / Long ラベルで操作方法が明白
  * - 制約: ステップスナップで意図しない値を防止
  */
 export const PhaseDurationStepper = memo(function PhaseDurationStepper({
@@ -226,12 +189,12 @@ export const PhaseDurationStepper = memo(function PhaseDurationStepper({
 
   return (
     <div className="flex w-full max-w-xs flex-col gap-2">
-      <PhaseSwipeSlider
+      <PhaseScaleSlider
         phaseType="work"
         durationSec={getDuration("work")}
         onChangeDuration={onChangeDuration}
       />
-      <PhaseSwipeSlider
+      <PhaseScaleSlider
         phaseType="rest"
         durationSec={getDuration("rest")}
         onChangeDuration={onChangeDuration}
