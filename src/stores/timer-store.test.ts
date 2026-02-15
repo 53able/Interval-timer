@@ -539,28 +539,64 @@ describe("useTimerStore", () => {
       expect(workPhases.every((p) => p.durationSec === 300)).toBe(true);
     });
 
-    it("現在実行中のフェーズが該当タイプの場合、残り秒数をキャップする", () => {
-      // Arrange: WORKフェーズ実行中（残り18秒）
+    it("延長時に残り秒数もdelta分だけ増える", () => {
+      // Arrange: WORKフェーズ実行中（duration=3, 残り2秒 = 1秒経過）
       useTimerStore.getState().start(TEST_PRESET);
-      useTimerStore.setState({ currentPhaseIndex: 0, remainingSec: 18 });
+      useTimerStore.setState({ currentPhaseIndex: 0, remainingSec: 2 });
 
-      // Act: WORKを15秒に短縮
-      useTimerStore.getState().updatePhaseDuration("work", 15);
+      // Act: WORKを10秒に延長（delta = 10 - 3 = +7）
+      useTimerStore.getState().updatePhaseDuration("work", 10);
 
-      // Assert: 残り秒数が15秒にキャップ
+      // Assert: 残り秒数がdelta分増える（2 + 7 = 9）
+      expect(useTimerStore.getState().remainingSec).toBe(9);
+    });
+
+    it("短縮時に残り秒数もdelta分だけ減る", () => {
+      // Arrange: WORKフェーズ実行中（duration=30, 残り25秒）
+      useTimerStore.getState().start(TEST_PRESET);
+      useTimerStore.setState({
+        currentPhaseIndex: 0,
+        remainingSec: 25,
+        phases: TEST_PRESET.phases.map((p) =>
+          p.type === "work" ? { ...p, durationSec: 30 } : p,
+        ),
+      });
+
+      // Act: WORKを20秒に短縮（delta = 20 - 30 = -10）
+      useTimerStore.getState().updatePhaseDuration("work", 20);
+
+      // Assert: 残り秒数がdelta分減る（25 + (-10) = 15）
       expect(useTimerStore.getState().remainingSec).toBe(15);
     });
 
-    it("現在実行中のフェーズが該当タイプで増加の場合、残り秒数はそのまま", () => {
-      // Arrange: WORKフェーズ実行中（残り18秒）
+    it("delta調整後の値が新秒数を超えたら新秒数にクランプされる", () => {
+      // Arrange: WORKフェーズ実行中（残り18秒、duration=3）
       useTimerStore.getState().start(TEST_PRESET);
       useTimerStore.setState({ currentPhaseIndex: 0, remainingSec: 18 });
 
-      // Act: WORKを25秒に増加
-      useTimerStore.getState().updatePhaseDuration("work", 25);
+      // Act: WORKを15秒に変更（delta = +12、18+12=30 > 15）
+      useTimerStore.getState().updatePhaseDuration("work", 15);
 
-      // Assert: 残り秒数はそのまま
-      expect(useTimerStore.getState().remainingSec).toBe(18);
+      // Assert: 新秒数の15にクランプ
+      expect(useTimerStore.getState().remainingSec).toBe(15);
+    });
+
+    it("delta調整後の値が0未満になったら0にクランプされる", () => {
+      // Arrange: WORKフェーズ実行中（duration=30に上書き、残り2秒）
+      useTimerStore.getState().start(TEST_PRESET);
+      useTimerStore.setState({
+        currentPhaseIndex: 0,
+        remainingSec: 2,
+        phases: TEST_PRESET.phases.map((p) =>
+          p.type === "work" ? { ...p, durationSec: 30 } : p,
+        ),
+      });
+
+      // Act: WORKを5秒に短縮（delta = 5 - 30 = -25、2 + (-25) = -23）
+      useTimerStore.getState().updatePhaseDuration("work", 5);
+
+      // Assert: 0にクランプ
+      expect(useTimerStore.getState().remainingSec).toBe(0);
     });
 
     it("idle状態では変更が無視される", () => {

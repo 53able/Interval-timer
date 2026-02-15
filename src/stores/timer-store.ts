@@ -78,7 +78,8 @@ type TimerStoreActions = {
    * 指定タイプのフェーズ秒数をリアルタイムで更新する
    *
    * 同タイプの全フェーズの durationSec を一括更新する。
-   * 現在実行中のフェーズが該当タイプの場合、remainingSec を新秒数以下にキャップする。
+   * 現在実行中のフェーズが該当タイプの場合、remainingSec を delta 分だけ追従させる
+   * （延長 → remaining も増え、短縮 → remaining も減る）。
    *
    * 制約:
    * - 最小値: MIN_PHASE_DURATION_SEC（5秒）
@@ -163,14 +164,17 @@ export const useTimerStore = create<TimerStoreState & TimerStoreActions>()(
           p.type === phaseType ? { ...p, durationSec: clamped } : p,
         );
 
-        // 現在実行中のフェーズが該当タイプなら、残り秒数を新秒数以下にキャップ
+        // 現在実行中のフェーズが該当タイプなら、残り秒数をdelta分だけ追従させる
+        // 延長 → remainingも増える（リングが伸びる = 直感通り）
+        // 短縮 → remainingも減る（リングが縮む = 直感通り）
         const currentPhase = isPreparingPhase ? null : phases[currentPhaseIndex];
-        const shouldCapRemaining = currentPhase?.type === phaseType && remainingSec > clamped;
-
-        set({
-          phases: updatedPhases,
-          ...(shouldCapRemaining ? { remainingSec: clamped } : {}),
-        });
+        if (currentPhase?.type === phaseType) {
+          const delta = clamped - currentPhase.durationSec;
+          const adjustedRemaining = Math.max(0, Math.min(remainingSec + delta, clamped));
+          set({ phases: updatedPhases, remainingSec: adjustedRemaining });
+        } else {
+          set({ phases: updatedPhases });
+        }
       },
 
       tick: () => {
