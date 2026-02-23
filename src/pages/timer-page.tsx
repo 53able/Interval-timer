@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect } from "react";
+import { useMemo, useCallback, useState, useEffect, useRef } from "react";
 import { addSeconds, format } from "date-fns";
 import { useTimerStore } from "@/stores/timer-store";
 import { usePresetStore } from "@/stores/preset-store";
@@ -101,7 +101,7 @@ const formatTime = (totalSec: number): string => {
  * 残り秒数から終了予定時刻を "H:mm:ss" 形式で算出する
  *
  * 現在時刻に残り秒数を加算して終了予定時刻を返す。
- * タイマー実行中は毎秒再計算されるためリアルタイムに更新される。
+ * 実行中は fixedEstimatedEndTime を表示に使うため、この関数の結果は毎秒は更新されない（idle / paused 等で使用）。
  */
 const formatEstimatedEndTime = (remainingSec: number): string =>
   format(addSeconds(new Date(), remainingSec), "H:mm:ss");
@@ -132,6 +132,10 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
+  /** 実行中に一度だけセットする終了予定時刻（秒を動かさない固定表示用） */
+  const [fixedEstimatedEndTime, setFixedEstimatedEndTime] = useState<string | null>(null);
+  /** handleStart で終了予定をセットした直後は true。effect での上書きを防ぐ */
+  const endTimeSetByStartRef = useRef(false);
   const status = useTimerStore((s) => s.status);
   const storeRemainingSec = useTimerStore((s) => s.remainingSec);
   const currentPhaseIndex = useTimerStore((s) => s.currentPhaseIndex);
@@ -196,6 +200,30 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
   /** タイマー実行中はスクリーンスリープを防止 */
   useWakeLock(status === "running");
 
+  /** 再開時に終了予定を総残りでセット。running 以外では固定値をクリア */
+  useEffect(() => {
+    if (status !== "running") {
+      setFixedEstimatedEndTime(null);
+      return;
+    }
+    if (endTimeSetByStartRef.current) {
+      endTimeSetByStartRef.current = false;
+      return;
+    }
+    const s = useTimerStore.getState();
+    const totalRemaining = calcTotalRemainingSec(
+      s.phases,
+      s.currentPhaseIndex,
+      s.currentRound,
+      s.totalRounds,
+      s.remainingSec,
+      s.isPreparingPhase,
+    );
+    setFixedEstimatedEndTime(
+      format(addSeconds(new Date(), totalRemaining), "H:mm:ss"),
+    );
+  }, [status]);
+
   // --- 進捗計算（display値を使って統一的に算出） ---
   const currentPhase = isPreparingPhase ? null : displayPhases[currentPhaseIndex];
   const currentPhaseDuration = isPreparingPhase
@@ -257,6 +285,14 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
       };
       await initAudio();
       start(editedPreset);
+      const totalDurationSec =
+        editedPreset.prepareSec +
+        editedPreset.phases.reduce((s, p) => s + p.durationSec, 0) *
+          editedPreset.totalRounds;
+      setFixedEstimatedEndTime(
+        format(addSeconds(new Date(), totalDurationSec), "H:mm:ss"),
+      );
+      endTimeSetByStartRef.current = true;
       if (editedPreset.prepareSec > 0) {
         playPrepareStart();
       }
@@ -389,7 +425,8 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
               >
                 現在 {format(now, "H:mm:ss")}
               </span>
-              {totalRemainingSec > 0 && (
+              {(totalRemainingSec > 0 ||
+                (status === "running" && fixedEstimatedEndTime !== null)) && (
                 <span
                   className={
                     accordionOpen
@@ -399,7 +436,9 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
                   style={{ letterSpacing: "-0.03em" }}
                 >
                   <span className="text-red-500">→</span>{" "}
-                  {formatEstimatedEndTime(totalRemainingSec)}
+                  {status === "running" && fixedEstimatedEndTime !== null
+                    ? fixedEstimatedEndTime
+                    : formatEstimatedEndTime(totalRemainingSec)}
                 </span>
               )}
               <span
