@@ -1,6 +1,12 @@
 import type { PhaseType } from "@/schemas/timer";
 import * as Tone from "tone";
 
+declare global {
+  interface Navigator {
+    audioSession?: { type: string };
+  }
+}
+
 /**
  * ノート間の時間間隔（秒）
  *
@@ -77,9 +83,13 @@ const playSequence = (notes: readonly string[]) => {
  *
  * ブラウザのオートプレイポリシーにより、ユーザー操作を起点として
  * AudioContext を resume する必要がある。タイマー開始ボタン押下時に呼ぶ。
+ * iOS 消音時でも再生されるよう、対応ブラウザ（Safari 等）では AudioSession を playback に設定する。
  */
 export const initAudio = async () => {
   await Tone.start();
+  if ("audioSession" in navigator && navigator.audioSession) {
+    navigator.audioSession.type = "playback";
+  }
 };
 
 /**

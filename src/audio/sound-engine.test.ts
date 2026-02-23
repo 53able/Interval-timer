@@ -55,6 +55,12 @@ import {
 describe("sound-engine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    if ("audioSession" in navigator) {
+      Object.defineProperty(navigator, "audioSession", {
+        value: undefined,
+        configurable: true,
+      });
+    }
   });
 
   describe("initAudio", () => {
@@ -64,6 +70,18 @@ describe("sound-engine", () => {
 
       // Assert
       expect(Tone.start).toHaveBeenCalledTimes(1);
+    });
+
+    it("navigator.audioSession が存在するとき type を playback に設定する", async () => {
+      const audioSession = { type: "auto" };
+      Object.defineProperty(navigator, "audioSession", {
+        value: audioSession,
+        configurable: true,
+      });
+
+      await initAudio();
+
+      expect(audioSession.type).toBe("playback");
     });
   });
 
