@@ -350,9 +350,9 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
         </button>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col items-center">
-          {/* 折りたたみ時はこのブロックが flex-1 で伸び、リング・時間を大きく表示 */}
+          {/* 折りたたみ時は 100vh の範囲内でリング・時刻を最大表示 */}
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
-            {/* マルチリング: 折りたたみ時は最大 min(72vh,400px) で見やすく */}
+            {/* マルチリング: 折りたたみ時は 100vh から凡例・時刻・summary 分を除いた高さで最大表示 */}
             <MultiRing
               totalProgress={totalProgress}
               workProgress={workProgress}
@@ -365,14 +365,14 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
               className={
                 accordionOpen
                   ? undefined
-                  : "mx-auto h-[min(72vh,400px)] w-[min(72vh,400px)]"
+                  : "mx-auto h-[min(calc(100vh-11rem),92vw)] w-[min(calc(100vh-11rem),92vw)] max-h-[560px] max-w-[560px]"
               }
             />
 
             {/* 凡例（P5: 補助情報は低明度で控えめに） */}
             {legendElement}
 
-            {/* 時間情報: 現在時刻（毎秒更新）・終了予定・残り。折りたたみ時は大きく */}
+            {/* 時間情報: 現在時刻（毎秒更新）・終了予定・残り。折りたたみ時は 100vh 内で大きく */}
             <div
               className={
                 accordionOpen
@@ -384,7 +384,7 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
                 className={
                   accordionOpen
                     ? "font-mono text-sm tracking-wider text-neutral-400"
-                    : "font-mono text-base tracking-wider text-neutral-400"
+                    : "font-mono text-xl tracking-wider text-neutral-400"
                 }
               >
                 現在 {format(now, "H:mm:ss")}
@@ -394,7 +394,7 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
                   className={
                     accordionOpen
                       ? "font-mono text-2xl font-black text-white"
-                      : "font-mono text-3xl font-black text-white"
+                      : "font-mono text-5xl font-black text-white"
                   }
                   style={{ letterSpacing: "-0.03em" }}
                 >
@@ -406,7 +406,7 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
                 className={
                   accordionOpen
                     ? "font-mono text-xs tracking-wider text-neutral-500"
-                    : "font-mono text-sm tracking-wider text-neutral-500"
+                    : "font-mono text-lg tracking-wider text-neutral-500"
                 }
               >
                 残り {formatTime(totalRemainingSec)}
