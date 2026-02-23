@@ -83,6 +83,20 @@ export const initAudio = async () => {
 };
 
 /**
+ * AudioContext を resume する
+ *
+ * バックグラウンドからフォアグラウンド復帰時に呼ぶ。
+ * iOS 等でタブ非表示中に AudioContext が suspended になる場合の復帰用。
+ * 既に running なら無害。
+ */
+export const resumeAudioContext = async () => {
+  const ctx = Tone.getContext();
+  if (ctx.state === "suspended") {
+    await ctx.resume();
+  }
+};
+
+/**
  * 準備フェーズ開始時の通知音を再生する
  *
  * C5 の短いベル音を鳴らし、ワークアウトの準備開始を知らせる。

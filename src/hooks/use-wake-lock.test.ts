@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, waitFor, act } from "@testing-library/react";
 import { useWakeLock } from "./use-wake-lock";
 
 describe("useWakeLock", () => {
@@ -16,6 +16,10 @@ describe("useWakeLock", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(document, "visibilityState", {
+      value: "visible",
+      configurable: true,
+    });
     Object.defineProperty(navigator, "wakeLock", {
       value: { request: mockRequest },
       configurable: true,
@@ -70,5 +74,26 @@ describe("useWakeLock", () => {
     expect(() => {
       renderHook(() => useWakeLock(true));
     }).not.toThrow();
+  });
+
+  it("タブ復帰時（visibilitychange → visible）に Wake Lock を再取得する", async () => {
+    renderHook(() => useWakeLock(true));
+
+    await waitFor(() => {
+      expect(mockRequest).toHaveBeenCalledWith("screen");
+    });
+    const callCountAfterInit = mockRequest.mock.calls.length;
+
+    act(() => {
+      Object.defineProperty(document, "visibilityState", {
+        value: "visible",
+        configurable: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    await waitFor(() => {
+      expect(mockRequest.mock.calls.length).toBeGreaterThan(callCountAfterInit);
+    });
   });
 });

@@ -4,6 +4,10 @@ import { useTimerStore } from "@/stores/timer-store";
 import { useTimerEngine } from "./use-timer-engine";
 import type { Preset } from "@/schemas/timer";
 
+vi.mock("@/audio/sound-engine", () => ({
+  resumeAudioContext: vi.fn(() => Promise.resolve()),
+}));
+
 /** テスト用プリセット（2フェーズ × 2ラウンド、準備なし） */
 const TEST_PRESET: Preset = {
   id: "test-preset",
@@ -210,6 +214,25 @@ describe("useTimerEngine", () => {
   });
 
   describe("visibilitychange", () => {
+    it("hidden にしても interval は止まらず tick が継続する", () => {
+      useTimerStore.getState().start(TEST_PRESET);
+      renderHook(() => useTimerEngine());
+
+      act(() => {
+        Object.defineProperty(document, "visibilityState", {
+          value: "hidden",
+          configurable: true,
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+
+      expect(useTimerStore.getState().remainingSec).toBe(2);
+    });
+
     it("バックグラウンドからフォアグラウンド復帰時に経過時間が補正される", () => {
       // Arrange: タイマーを開始（remainingSec = 3）
       useTimerStore.getState().start(TEST_PRESET);

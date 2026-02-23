@@ -376,6 +376,63 @@ describe("useTimerStore", () => {
     });
   });
 
+  describe("syncFromElapsed", () => {
+    it("スナップショットから経過秒数分だけ状態を進めて一括反映する", () => {
+      useTimerStore.getState().start(TEST_PRESET);
+      const snapshot = {
+        remainingSec: 3,
+        currentPhaseIndex: 0,
+        currentRound: 1,
+        isPreparingPhase: false,
+        phases: TEST_PRESET.phases,
+        totalRounds: 2,
+        prepareSec: 0,
+      };
+
+      useTimerStore.getState().syncFromElapsed(snapshot, 2);
+
+      expect(useTimerStore.getState().remainingSec).toBe(1);
+      expect(useTimerStore.getState().currentPhaseIndex).toBe(0);
+      expect(useTimerStore.getState().currentRound).toBe(1);
+    });
+
+    it("経過で完了に達すると status が completed になる", () => {
+      useTimerStore.getState().start(SINGLE_PHASE_PRESET);
+      const snapshot = {
+        remainingSec: 2,
+        currentPhaseIndex: 0,
+        currentRound: 1,
+        isPreparingPhase: false,
+        phases: SINGLE_PHASE_PRESET.phases,
+        totalRounds: 1,
+        prepareSec: 0,
+      };
+
+      useTimerStore.getState().syncFromElapsed(snapshot, 2);
+
+      expect(useTimerStore.getState().status).toBe("completed");
+      expect(useTimerStore.getState().remainingSec).toBe(0);
+    });
+
+    it("elapsedSec が 0 のときは何も更新しない", () => {
+      useTimerStore.getState().start(TEST_PRESET);
+      useTimerStore.setState({ remainingSec: 1 });
+      const snapshot = {
+        remainingSec: 1,
+        currentPhaseIndex: 0,
+        currentRound: 1,
+        isPreparingPhase: false,
+        phases: TEST_PRESET.phases,
+        totalRounds: 2,
+        prepareSec: 0,
+      };
+
+      useTimerStore.getState().syncFromElapsed(snapshot, 0);
+
+      expect(useTimerStore.getState().remainingSec).toBe(1);
+    });
+  });
+
   describe("updateTotalRounds", () => {
     it("running 状態でセット回数を増やせる", () => {
       // Arrange

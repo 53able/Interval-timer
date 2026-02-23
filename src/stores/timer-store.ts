@@ -87,10 +87,68 @@ type TimerStoreActions = {
    * - running / paused 状態でのみ有効
    */
   readonly updatePhaseDuration: (phaseType: PhaseType, newDurationSec: number) => void;
+  /**
+   * バックグラウンド復帰時: hidden 時点のスナップショットから経過秒数分だけ状態を進め、一括反映する
+   *
+   * コールバック（サウンド）は発火させず、表示のずれのみ補正する。
+   */
+  readonly syncFromElapsed: (
+    snapshot: Readonly<Pick<TimerStoreState, "remainingSec" | "currentPhaseIndex" | "currentRound" | "isPreparingPhase" | "phases" | "totalRounds" | "prepareSec">>,
+    elapsedSec: number,
+  ) => void;
 };
 
 /** localStorage に保存する際のストレージキー */
 const STORAGE_KEY = "interval-timer-timer" as const;
+
+/** tick 計算用のスナップショット型（syncFromElapsed の引数） */
+type TickSnapshot = Pick<
+  TimerStoreState,
+  "remainingSec" | "currentPhaseIndex" | "currentRound" | "isPreparingPhase" | "phases" | "totalRounds" | "prepareSec"
+>;
+
+/**
+ * 1秒分の経過を適用した次の状態を返す（純粋関数）
+ *
+ * @returns 次のスナップショット、または完了時は null
+ */
+const computeNextTickState = (s: Readonly<TickSnapshot>): TickSnapshot | null => {
+  const nextRemaining = s.remainingSec - 1;
+
+  if (nextRemaining > 0) {
+    return { ...s, remainingSec: nextRemaining };
+  }
+
+  if (s.isPreparingPhase) {
+    return {
+      ...s,
+      isPreparingPhase: false,
+      currentPhaseIndex: 0,
+      remainingSec: s.phases[0].durationSec,
+    };
+  }
+
+  const isLastPhase = s.currentPhaseIndex >= s.phases.length - 1;
+  const isLastRound = s.currentRound >= s.totalRounds;
+
+  if (isLastPhase && isLastRound) return null;
+
+  if (isLastPhase) {
+    return {
+      ...s,
+      currentRound: s.currentRound + 1,
+      currentPhaseIndex: 0,
+      remainingSec: s.phases[0].durationSec,
+    };
+  }
+
+  const nextPhaseIndex = s.currentPhaseIndex + 1;
+  return {
+    ...s,
+    currentPhaseIndex: nextPhaseIndex,
+    remainingSec: s.phases[nextPhaseIndex].durationSec,
+  };
+};
 
 /**
  * タイマーストアの初期状態
@@ -178,52 +236,44 @@ export const useTimerStore = create<TimerStoreState & TimerStoreActions>()(
       },
 
       tick: () => {
-        const { remainingSec, currentPhaseIndex, currentRound, phases, totalRounds, isPreparingPhase } =
-          get();
-        const nextRemaining = remainingSec - 1;
-
-        // フェーズ途中: 残り秒数をデクリメントするだけ
-        if (nextRemaining > 0) {
-          set({ remainingSec: nextRemaining });
-          return;
-        }
-
-        // 準備フェーズ完了 → ラウンドループの最初のフェーズへ
-        if (isPreparingPhase) {
-          set({
-            isPreparingPhase: false,
-            currentPhaseIndex: 0,
-            remainingSec: phases[0].durationSec,
-          });
-          return;
-        }
-
-        // フェーズ終了: 次の遷移先を判定
-        const isLastPhase = currentPhaseIndex >= phases.length - 1;
-        const isLastRound = currentRound >= totalRounds;
-
-        // 全ラウンド完了
-        if (isLastPhase && isLastRound) {
+        const state = get();
+        const snapshot: TickSnapshot = {
+          remainingSec: state.remainingSec,
+          currentPhaseIndex: state.currentPhaseIndex,
+          currentRound: state.currentRound,
+          isPreparingPhase: state.isPreparingPhase,
+          phases: state.phases,
+          totalRounds: state.totalRounds,
+          prepareSec: state.prepareSec,
+        };
+        const next = computeNextTickState(snapshot);
+        if (next) {
+          set(next);
+        } else {
           set({ status: "completed", remainingSec: 0 });
-          return;
         }
+      },
 
-        // 次のラウンドへ（現在のラウンドの最終フェーズが終了）
-        if (isLastPhase) {
-          set({
-            currentRound: currentRound + 1,
-            currentPhaseIndex: 0,
-            remainingSec: phases[0].durationSec,
-          });
-          return;
+      syncFromElapsed: (snapshot, elapsedSec) => {
+        if (elapsedSec <= 0) return;
+        let state: TickSnapshot = {
+          remainingSec: snapshot.remainingSec,
+          currentPhaseIndex: snapshot.currentPhaseIndex,
+          currentRound: snapshot.currentRound,
+          isPreparingPhase: snapshot.isPreparingPhase,
+          phases: snapshot.phases,
+          totalRounds: snapshot.totalRounds,
+          prepareSec: snapshot.prepareSec,
+        };
+        for (let i = 0; i < elapsedSec; i += 1) {
+          const next = computeNextTickState(state);
+          if (!next) {
+            set({ ...get(), status: "completed", remainingSec: 0 });
+            return;
+          }
+          state = next;
         }
-
-        // 次のフェーズへ
-        const nextPhaseIndex = currentPhaseIndex + 1;
-        set({
-          currentPhaseIndex: nextPhaseIndex,
-          remainingSec: phases[nextPhaseIndex].durationSec,
-        });
+        set({ ...get(), ...state });
       },
     }),
     {
