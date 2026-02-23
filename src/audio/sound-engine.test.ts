@@ -8,15 +8,34 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *
  * vi.hoisted() で宣言することで、vi.mock のファクトリ巻き上げ時に参照可能にする。
  */
-const { mockTriggerAttackRelease, mockToDestination } = vi.hoisted(() => ({
-  mockTriggerAttackRelease: vi.fn(),
-  mockToDestination: vi.fn(function (this: unknown) {
-    return this;
-  }),
-}));
+type MockToneContext = {
+  state: "suspended" | "running";
+  resume: () => Promise<void>;
+};
+
+const {
+  mockTriggerAttackRelease,
+  mockToDestination,
+  mockResume,
+  mockGetContext,
+} = vi.hoisted(() => {
+  const mockResumeFn = vi.fn().mockResolvedValue(undefined);
+  return {
+    mockTriggerAttackRelease: vi.fn(),
+    mockToDestination: vi.fn(function (this: unknown) {
+      return this;
+    }),
+    mockResume: mockResumeFn,
+    mockGetContext: vi.fn((): MockToneContext => ({
+      state: "suspended",
+      resume: mockResumeFn,
+    })),
+  };
+});
 
 vi.mock("tone", () => ({
   start: vi.fn().mockResolvedValue(undefined),
+  getContext: () => mockGetContext(),
   Synth: vi.fn().mockImplementation(() => ({
     toDestination: mockToDestination,
     triggerAttackRelease: mockTriggerAttackRelease,
@@ -25,11 +44,23 @@ vi.mock("tone", () => ({
 }));
 
 import * as Tone from "tone";
-import { initAudio, playComplete, playPhaseStart, playPrepareStart } from "./sound-engine";
+import {
+  initAudio,
+  playComplete,
+  playPhaseStart,
+  playPrepareStart,
+  resumeAudioContext,
+} from "./sound-engine";
 
 describe("sound-engine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    if ("audioSession" in navigator) {
+      Object.defineProperty(navigator, "audioSession", {
+        value: undefined,
+        configurable: true,
+      });
+    }
   });
 
   describe("initAudio", () => {
@@ -39,6 +70,40 @@ describe("sound-engine", () => {
 
       // Assert
       expect(Tone.start).toHaveBeenCalledTimes(1);
+    });
+
+    it("navigator.audioSession が存在するとき type を playback に設定する", async () => {
+      const audioSession = { type: "auto" };
+      Object.defineProperty(navigator, "audioSession", {
+        value: audioSession,
+        configurable: true,
+      });
+
+      await initAudio();
+
+      expect(audioSession.type).toBe("playback");
+    });
+  });
+
+  describe("resumeAudioContext", () => {
+    it("state が suspended のとき resume が呼ばれる", async () => {
+      mockGetContext.mockReturnValue({ state: "suspended", resume: mockResume });
+
+      await resumeAudioContext();
+
+      expect(mockResume).toHaveBeenCalledTimes(1);
+    });
+
+    it("state が running のとき resume は呼ばれない", async () => {
+      mockGetContext.mockReturnValue({
+        state: "running",
+        resume: mockResume,
+      });
+      mockResume.mockClear();
+
+      await resumeAudioContext();
+
+      expect(mockResume).not.toHaveBeenCalled();
     });
   });
 

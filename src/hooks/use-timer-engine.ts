@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { resumeAudioContext } from "@/audio/sound-engine";
 import { useTimerStore } from "@/stores/timer-store";
 
 /**
@@ -42,24 +43,11 @@ const executeTickWithCallbacks = (
   }
 };
 
-/**
- * バックグラウンド→フォアグラウンド復帰時に、経過時間分の tick を補正する
- *
- * @param missedCount - 補正すべき tick 回数
- * @param tick - useTimerStore の tick 関数
- * @param getCallbacks - コールバックの最新参照を返す関数
- */
-const compensateMissedTicks = (
-  missedCount: number,
-  tick: () => void,
-  getCallbacks: () => TimerEngineCallbacks | undefined,
-) => {
-  Array.from({ length: missedCount }).every(() => {
-    if (useTimerStore.getState().status !== "running") return false;
-    executeTickWithCallbacks(tick, getCallbacks);
-    return true;
-  });
-};
+/** hidden 時点の状態スナップショット（syncFromElapsed 用） */
+type HiddenSnapshot = Pick<
+  ReturnType<typeof useTimerStore.getState>,
+  "remainingSec" | "currentPhaseIndex" | "currentRound" | "isPreparingPhase" | "phases" | "totalRounds" | "prepareSec"
+>;
 
 /**
  * タイマーエンジンフック
@@ -69,7 +57,7 @@ const compensateMissedTicks = (
  * **責務**:
  * 1. `status === "running"` のとき毎秒 `tick()` を実行
  * 2. フェーズ切り替え・完了時にコールバックを発火
- * 3. `visibilitychange` でバックグラウンド復帰時に経過時間を補正
+ * 3. `visibilitychange` でバックグラウンド時は interval を止めず、復帰時に経過時間で state のみ補正（サウンドは鳴らさない）
  * 4. `status` 変化・アンマウント時にタイマーをクリーンアップ
  *
  * @param callbacks - フェーズ切り替え・完了時のコールバック（省略可）
@@ -85,6 +73,8 @@ export const useTimerEngine = (callbacks?: TimerEngineCallbacks) => {
   const intervalIdRef = useRef<ReturnType<typeof setInterval> | null>(null);
   /** バックグラウンドに遷移した時刻（performance.now ベース） */
   const hiddenAtRef = useRef(0);
+  /** バックグラウンド遷移時点の状態スナップショット（復帰時の補正で使用） */
+  const hiddenSnapshotRef = useRef<HiddenSnapshot | null>(null);
 
   // メインのタイマーループ: status が running の間だけ動作
   useEffect(() => {
@@ -102,33 +92,36 @@ export const useTimerEngine = (callbacks?: TimerEngineCallbacks) => {
     };
   }, [status, tick]);
 
-  // visibilitychange: バックグラウンド復帰時に経過時間を補正
+  // visibilitychange: hidden では interval を止めず、復帰時に経過時間で state のみ補正
   useEffect(() => {
     if (status !== "running") return;
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        // バックグラウンド遷移: tick ループを停止して時刻を記録
-        if (intervalIdRef.current !== null) {
-          clearInterval(intervalIdRef.current);
-          intervalIdRef.current = null;
-        }
+        // バックグラウンド遷移: 時刻と状態スナップショットを記録。interval は止めない
+        const state = useTimerStore.getState();
         hiddenAtRef.current = performance.now();
+        hiddenSnapshotRef.current = {
+          remainingSec: state.remainingSec,
+          currentPhaseIndex: state.currentPhaseIndex,
+          currentRound: state.currentRound,
+          isPreparingPhase: state.isPreparingPhase,
+          phases: state.phases,
+          totalRounds: state.totalRounds,
+          prepareSec: state.prepareSec,
+        };
         return;
       }
 
-      // フォアグラウンド復帰: 経過時間分の tick を補正
-      const elapsedMs = performance.now() - hiddenAtRef.current;
-      const missedTickCount = Math.floor(elapsedMs / 1000);
-      const getCallbacks = () => callbacksRef.current;
+      // フォアグラウンド復帰: AudioContext を resume（iOS 等で suspended になっている場合）
+      void resumeAudioContext();
 
-      compensateMissedTicks(missedTickCount, tick, getCallbacks);
-
-      // 補正後もまだ running なら tick ループを再開
-      if (useTimerStore.getState().status === "running") {
-        intervalIdRef.current = setInterval(() => {
-          executeTickWithCallbacks(tick, getCallbacks);
-        }, 1000);
+      // スナップショットから経過秒数分だけ状態を補正（コールバックは発火させない）
+      const snapshot = hiddenSnapshotRef.current;
+      if (snapshot !== null) {
+        const elapsedMs = performance.now() - hiddenAtRef.current;
+        const elapsedSec = Math.floor(elapsedMs / 1000);
+        useTimerStore.getState().syncFromElapsed(snapshot, elapsedSec);
       }
     };
 
@@ -137,5 +130,5 @@ export const useTimerEngine = (callbacks?: TimerEngineCallbacks) => {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [status, tick]);
+  }, [status]);
 };

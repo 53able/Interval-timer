@@ -577,6 +577,20 @@ flowchart TD
 
 > **設計判断**: Wake Lock APIは[ブラウザサポートが広がっている](https://caniuse.com/wake-lock)。PWAのホーム画面起動時は特にスリープしやすいため、初期スコープに含める判断をした。非対応ブラウザでも致命的な影響はない（タイマーは動作し続ける）。
 
+### iOS ロック画面・バックグラウンドでの動作（ベストエフォート）
+
+ロック画面や他アプリへの切り替え時も、タイマーとサウンドが止まらないようにするため、以下を採用している。
+
+| 対策 | 内容 |
+|------|------|
+| interval を止めない | `visibilitychange` で `hidden` のときも `setInterval` を clear しない。プラットフォームが JS をサスペンドしなければ tick とサウンドが発火し続ける。 |
+| 復帰時の補正 | `visible` 復帰時、hidden 時点の状態スナップショットと経過秒数から `syncFromElapsed` で表示を一括補正。コールバック（サウンド）は発火させず、ずれのみ解消する。 |
+| AudioContext resume | 復帰時に `resumeAudioContext()` を呼び、iOS 等で suspended になった AudioContext を再開する。 |
+| Wake Lock 再取得 | タブ復帰時に `visibilitychange` で Wake Lock を再取得（上記「復帰対応」の通り）。 |
+| iOS 消音時 | 対応ブラウザ（Safari / iOS 16.4+ 等）では Audio Session API で `type = playback` を設定し、消音スイッチ時でも通知音が鳴るようベストエフォートする。未対応環境では従来どおり消音の影響を受ける。 |
+
+**制約**: iOS ではロック・バックグラウンド時に WebView/PWA の JavaScript がサスペンドまたは強くスロットルされるため、**PWA のみの構成では「ロック中・バックグラウンドで確実にタイマーとサウンドを動かす」ことは保証できない**。あくまでベストエフォートであり、確実性を求める場合は Capacitor 等でネイティブ化し Background Modes（Audio）を有効にする案を検討する。
+
 ## 5. 検討した代替案
 
 | 案 | 概要 | 利点 | 欠点 | 採用しなかった理由 |
