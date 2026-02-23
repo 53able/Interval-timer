@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { X, ListMusic } from "lucide-react";
+import { X, PanelRightOpen } from "lucide-react";
 import { usePresetStore } from "@/stores/preset-store";
 import { useDrawerStore } from "@/stores/drawer-store";
 import {
@@ -129,7 +129,7 @@ export const PresetDrawer = memo(function PresetDrawer({
           className="fixed right-0 top-1/2 z-40 flex -translate-y-1/2 items-center gap-1.5 rounded-l-lg border border-r-0 border-red-900/30 bg-[#0a0a0a]/90 px-1.5 py-4 backdrop-blur-sm transition-colors hover:bg-neutral-900"
           aria-label="プリセット一覧を開く"
         >
-          <ListMusic className="size-4 text-neutral-400" />
+          <PanelRightOpen className="size-4 text-neutral-400" />
         </button>
       </DrawerTrigger>
 
