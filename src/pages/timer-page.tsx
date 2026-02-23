@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useState, useEffect } from "react";
 import { addSeconds, format } from "date-fns";
 import { useTimerStore } from "@/stores/timer-store";
 import { usePresetStore } from "@/stores/preset-store";
@@ -15,6 +15,7 @@ import {
 import { MultiRing, RING_COLORS } from "@/components/multi-ring";
 import { PhaseDurationStepper } from "@/components/phase-duration-stepper";
 import { RoundStepper } from "@/components/round-stepper";
+import { ChevronDownIcon } from "lucide-react";
 import { BpmControl } from "@/components/bpm-control";
 import { PresetDrawer } from "@/components/preset-drawer";
 
@@ -97,13 +98,13 @@ const formatTime = (totalSec: number): string => {
 };
 
 /**
- * 残り秒数から終了予定時刻を "H:mm" 形式で算出する
+ * 残り秒数から終了予定時刻を "H:mm:ss" 形式で算出する
  *
  * 現在時刻に残り秒数を加算して終了予定時刻を返す。
  * タイマー実行中は毎秒再計算されるためリアルタイムに更新される。
  */
 const formatEstimatedEndTime = (remainingSec: number): string =>
-  format(addSeconds(new Date(), remainingSec), "H:mm");
+  format(addSeconds(new Date(), remainingSec), "H:mm:ss");
 
 /**
  * タイマー画面コンポーネント
@@ -123,6 +124,14 @@ const formatEstimatedEndTime = (remainingSec: number): string =>
  * - AudioContext 初期化: リングタップ時にブラウザのオートプレイポリシーを解除
  */
 export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
+  /** アコーディオン（設定・メトロノーム）の開閉。閉じているときは表示エリアを最大に使う */
+  const [accordionOpen, setAccordionOpen] = useState(false);
+  /** 現在時刻（毎秒更新して秒までパタパタ進む表示にする） */
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
   const status = useTimerStore((s) => s.status);
   const storeRemainingSec = useTimerStore((s) => s.remainingSec);
   const currentPhaseIndex = useTimerStore((s) => s.currentPhaseIndex);
@@ -340,55 +349,105 @@ export const TimerPage = ({ presetId, onSwitchPreset }: TimerPageProps) => {
           <div className="h-px w-32 bg-linear-to-r from-transparent via-red-500 to-transparent" />
         </button>
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center">
-          {/* マルチリングエリア: タップ/ロングプレスでタイマー操作 */}
-          <MultiRing
-            totalProgress={totalProgress}
-            workProgress={workProgress}
-            restProgress={restProgress}
-            remainingSec={ringRemainingSec}
-            hintText={ringConfig.hintText}
-            onTap={ringConfig.onTap}
-            onLongPress={ringConfig.onLongPress}
-            ariaLabel={ringConfig.ariaLabel}
-          />
+        <div className="flex min-h-0 flex-1 flex-col items-center">
+          {/* 折りたたみ時はこのブロックが flex-1 で伸び、リング・時間を大きく表示 */}
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+            {/* マルチリング: 折りたたみ時は最大 min(72vh,400px) で見やすく */}
+            <MultiRing
+              totalProgress={totalProgress}
+              workProgress={workProgress}
+              restProgress={restProgress}
+              remainingSec={ringRemainingSec}
+              hintText={ringConfig.hintText}
+              onTap={ringConfig.onTap}
+              onLongPress={ringConfig.onLongPress}
+              ariaLabel={ringConfig.ariaLabel}
+              className={
+                accordionOpen
+                  ? undefined
+                  : "mx-auto h-[min(72vh,400px)] w-[min(72vh,400px)]"
+              }
+            />
 
-          {/* 凡例（P5: 補助情報は低明度で控えめに） */}
-          {legendElement}
+            {/* 凡例（P5: 補助情報は低明度で控えめに） */}
+            {legendElement}
 
-          {/* 時間情報ブロック: 終了予定を主役、残り時間を従属（常に表示） */}
-          <div className="mt-4 flex flex-col items-center gap-1">
-            {totalRemainingSec > 0 && (
+            {/* 時間情報: 現在時刻（毎秒更新）・終了予定・残り。折りたたみ時は大きく */}
+            <div
+              className={
+                accordionOpen
+                  ? "mt-4 flex flex-col items-center gap-1"
+                  : "mt-3 flex flex-col items-center gap-2"
+              }
+            >
               <span
-                className="font-mono text-2xl font-black text-white"
-                style={{ letterSpacing: "-0.03em" }}
+                className={
+                  accordionOpen
+                    ? "font-mono text-sm tracking-wider text-neutral-400"
+                    : "font-mono text-base tracking-wider text-neutral-400"
+                }
               >
-                <span className="text-red-500">→</span>{" "}
-                {formatEstimatedEndTime(totalRemainingSec)}
+                現在 {format(now, "H:mm:ss")}
               </span>
-            )}
-            <span className="font-mono text-xs tracking-wider text-neutral-500">
-              残り {formatTime(totalRemainingSec)}
-            </span>
-          </div>
+              {totalRemainingSec > 0 && (
+                <span
+                  className={
+                    accordionOpen
+                      ? "font-mono text-2xl font-black text-white"
+                      : "font-mono text-3xl font-black text-white"
+                  }
+                  style={{ letterSpacing: "-0.03em" }}
+                >
+                  <span className="text-red-500">→</span>{" "}
+                  {formatEstimatedEndTime(totalRemainingSec)}
+                </span>
+              )}
+              <span
+                className={
+                  accordionOpen
+                    ? "font-mono text-xs tracking-wider text-neutral-500"
+                    : "font-mono text-sm tracking-wider text-neutral-500"
+                }
+              >
+                残り {formatTime(totalRemainingSec)}
+              </span>
+            </div>
 
-          {/* ラウンド情報 + フェーズ設定（全状態で統一表示） */}
-          <div className="mt-3 flex flex-col gap-3">
-            <RoundStepper
-              currentRound={currentRound}
-              totalRounds={displayTotalRounds}
-              isPreparingPhase={status === "idle" || isPreparingPhase}
-              onChangeTotalRounds={isActive ? updateTotalRounds : updateIdleTotalRounds}
-            />
-            <PhaseDurationStepper
-              phases={displayPhases}
-              onChangeDuration={isActive ? updatePhaseDuration : updateIdlePhaseDuration}
-            />
-          </div>
-
-          {/* BPMメトロノーム */}
-          <div className="mt-4 flex justify-center">
-            <BpmControl />
+            {/* ラウンド・フェーズ・BPM をアコーディオンで折り畳み */}
+            <details
+              className="group mt-3 w-full max-w-xs"
+              open={accordionOpen}
+              onToggle={(e) =>
+                setAccordionOpen((e.target as HTMLDetailsElement).open)
+              }
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-center gap-2 rounded-lg py-2 text-neutral-400 transition-colors hover:text-neutral-300 [&::-webkit-details-marker]:hidden">
+                <span className="text-xs tracking-wider">設定・メトロノーム</span>
+                <ChevronDownIcon
+                  className="size-4 shrink-0 transition-transform duration-200 group-open:rotate-180"
+                  aria-hidden
+                />
+              </summary>
+              <div className="mt-3 flex flex-col gap-3">
+                <RoundStepper
+                  currentRound={currentRound}
+                  totalRounds={displayTotalRounds}
+                  isPreparingPhase={status === "idle" || isPreparingPhase}
+                  onChangeTotalRounds={
+                    isActive ? updateTotalRounds : updateIdleTotalRounds
+                  }
+                />
+                <PhaseDurationStepper
+                  phases={displayPhases}
+                  onChangeDuration={
+                    isActive ? updatePhaseDuration : updateIdlePhaseDuration
+                  }
+                />
+                <div className="flex justify-center">
+                  <BpmControl />
+                </div>
+              </div>
+            </details>
           </div>
         </div>
       )}

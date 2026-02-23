@@ -68,6 +68,8 @@ type MultiRingProps = {
   readonly onLongPress?: () => void;
   /** アクセシビリティ用のラベル */
   readonly ariaLabel?: string;
+  /** リング全体（button）に渡すクラス。サイズ指定用（未指定時は h-64 w-64） */
+  readonly className?: string;
 };
 
 /**
@@ -89,6 +91,7 @@ export const MultiRing = ({
   onTap,
   onLongPress,
   ariaLabel = "タイマー操作リング",
+  className,
 }: MultiRingProps) => {
   const pointerHandlers = useLongPress(
     {
@@ -100,13 +103,17 @@ export const MultiRing = ({
   return (
     <button
       type="button"
-      className="group cursor-pointer select-none rounded-full outline-none transition-transform duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+      className={
+        className
+          ? `group cursor-pointer select-none rounded-full outline-none transition-transform duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a] ${className}`
+          : "group mx-auto h-64 w-64 cursor-pointer select-none rounded-full outline-none transition-transform duration-150 active:scale-95 focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]"
+      }
       aria-label={ariaLabel}
       {...pointerHandlers}
     >
       <svg
         viewBox="0 0 200 200"
-        className="mx-auto h-64 w-64 transition-[filter] duration-200 group-hover:drop-shadow-[0_0_12px_rgba(230,0,18,0.3)]"
+        className="h-full w-full transition-[filter] duration-200 group-hover:drop-shadow-[0_0_12px_rgba(230,0,18,0.3)]"
         role="img"
         aria-hidden="true"
       >
